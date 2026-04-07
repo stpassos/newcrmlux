@@ -1,0 +1,24 @@
+name: Deploy API → Windows VPS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'api/**'
+      - 'schema.sql'
+      - 'migration_*.sql'
+
+jobs:
+  deploy:
+    name: Deploy API
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH → pull + restart PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.WINDOWS_VPS_HOST }}
+          username: ${{ secrets.WINDOWS_VPS_USER }}
+          password: ${{ secrets.WINDOWS_VPS_PASSWORD }}
+          script_stop: true
+          script: |
+            cd C:\newcrmlux-api && git pull origin main && cd C:\newcrmlux-api\api && npm install --omit=dev && pm2 restart newcrmlux-api && pm2 save

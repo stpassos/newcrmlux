@@ -1,0 +1,25 @@
+name: Deploy Frontend → imodigital.pt
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+
+jobs:
+  deploy:
+    name: Build & Deploy Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH → pull + docker build + service update
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.LINUX_VPS_HOST }}
+          username: ${{ secrets.LINUX_VPS_USER }}
+          password: ${{ secrets.LINUX_VPS_PASSWORD }}
+          command_timeout: 10m
+          script_stop: true
+          script: |
+            cd /opt/newcrmlux && git pull origin main
+            docker build -t imodigital-frontend:latest ./frontend/
+            docker service update --image imodigital-frontend:latest --force imodigital_imodigital
