@@ -1,0 +1,32 @@
+version: "3.7"
+
+services:
+  imodigital:
+    image: imodigital-frontend:latest
+    networks:
+      - webflixnet
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.imodigital.rule=Host(`imodigital.pt`) || Host(`www.imodigital.pt`)
+        - traefik.http.routers.imodigital.entrypoints=websecure
+        - traefik.http.routers.imodigital.priority=1
+        - traefik.http.routers.imodigital.tls.certresolver=letsencryptresolver
+        - traefik.http.routers.imodigital.service=imodigital
+        - traefik.http.services.imodigital.loadbalancer.server.port=80
+        - traefik.http.services.imodigital.loadbalancer.passHostHeader=true
+        # Redirect www → apex
+        - traefik.http.middlewares.imodigital-www-redirect.redirectregex.regex=^https://www\.imodigital\.pt(.*)
+        - traefik.http.middlewares.imodigital-www-redirect.redirectregex.replacement=https://imodigital.pt$${1}
+        - traefik.http.middlewares.imodigital-www-redirect.redirectregex.permanent=true
+        - traefik.http.routers.imodigital.middlewares=imodigital-www-redirect
+
+networks:
+  webflixnet:
+    external: true
+    name: webflixnet
