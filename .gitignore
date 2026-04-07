@@ -1,0 +1,16 @@
+# Scripts temporários com credenciais
+setup_db.bat
+verify_db.bat
+
+# Dependências
+node_modules/
+.env
+.env.*
+
+# Build
+dist/
+build/
+
+# OS
+.DS_Store
+Thumbs.db
