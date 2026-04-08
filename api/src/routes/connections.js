@@ -98,6 +98,44 @@ router.patch('/:id', verifyToken, requireRole('admin'), async (req, res, next) =
   }
 });
 
+// GET /api/connections/workspaces — lista workspaces disponíveis no 21online.app
+router.get('/workspaces', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const connResult = await pool.query(
+      `SELECT email, crm_password FROM crm_connections WHERE is_active = true ORDER BY created_at DESC LIMIT 1`
+    );
+    const conn = connResult.rows[0];
+    if (!conn) {
+      return res.status(404).json({ error: 'Nenhuma conexão ativa configurada.' });
+    }
+
+    const workerRes = await fetch('http://207.180.210.173:8080/api/21online/crm-fetch', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-internal-api-key': process.env.INTERNAL_API_KEY,
+      },
+      body: JSON.stringify({ email: conn.email, password: conn.crm_password, path: '/api/workspaces' }),
+      signal: AbortSignal.timeout(20000),
+    });
+
+    const workerData = await workerRes.json().catch(() => ({}));
+    if (!workerRes.ok || !workerData.success) {
+      return res.status(502).json({ error: workerData.error || 'Erro ao obter workspaces.' });
+    }
+
+    const items = Array.isArray(workerData.data)
+      ? workerData.data
+      : Array.isArray(workerData.data?.data)
+        ? workerData.data.data
+        : [];
+
+    res.json({ data: items, connection_email: conn.email });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // DELETE /api/connections/:id
 router.delete('/:id', verifyToken, requireRole('admin'), async (req, res, next) => {
   try {

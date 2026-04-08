@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { api } from '@/lib/api'
 import {
   FolderSync, Plus, Trash2, Eye, EyeOff,
-  CheckCircle2, XCircle, Loader2, RefreshCw, Wifi, WifiOff
+  CheckCircle2, XCircle, Loader2, RefreshCw, Wifi, WifiOff,
+  Building2
 } from 'lucide-react'
 
 interface CrmConnection {
@@ -17,6 +18,14 @@ interface CrmConnection {
   created_at: string
 }
 
+interface Workspace {
+  id?: string
+  name?: string
+  slug?: string
+  type?: string
+  [key: string]: unknown
+}
+
 export default function Sync() {
   const [connections, setConnections] = useState<CrmConnection[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,20 +37,41 @@ export default function Sync() {
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
 
-  const loadConnections = async () => {
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([])
+  const [workspacesLoading, setWorkspacesLoading] = useState(false)
+  const [workspacesError, setWorkspacesError] = useState<string | null>(null)
+
+  const loadConnections = useCallback(async () => {
     try {
       const res = await api.get<{ data: CrmConnection[] }>('/api/connections')
       setConnections(res.data)
+      return res.data
     } catch {
-      // ignore
+      return []
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  const loadWorkspaces = useCallback(async () => {
+    setWorkspacesLoading(true)
+    setWorkspacesError(null)
+    try {
+      const res = await api.get<{ data: Workspace[]; connection_email: string }>('/api/connections/workspaces')
+      setWorkspaces(res.data)
+    } catch (err: unknown) {
+      setWorkspacesError(err instanceof Error ? err.message : 'Erro ao carregar workspaces.')
+      setWorkspaces([])
+    } finally {
+      setWorkspacesLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
-    loadConnections()
-  }, [])
+    loadConnections().then(conns => {
+      if (conns.some(c => c.is_active)) loadWorkspaces()
+    })
+  }, [loadConnections, loadWorkspaces])
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -62,7 +92,8 @@ export default function Sync() {
         setPassword('')
         setShowForm(false)
       }
-      loadConnections()
+      const conns = await loadConnections()
+      if (conns.some(c => c.is_active)) loadWorkspaces()
     } catch (err: unknown) {
       setFeedback({ type: 'error', msg: err instanceof Error ? err.message : 'Erro ao guardar.' })
     } finally {
@@ -73,7 +104,9 @@ export default function Sync() {
   const handleToggle = async (conn: CrmConnection) => {
     try {
       await api.patch(`/api/connections/${conn.id}`, { is_active: !conn.is_active })
-      loadConnections()
+      const conns = await loadConnections()
+      if (conns.some(c => c.is_active)) loadWorkspaces()
+      else setWorkspaces([])
     } catch {
       // ignore
     }
@@ -83,11 +116,15 @@ export default function Sync() {
     if (!confirm('Remover esta conexão?')) return
     try {
       await api.delete(`/api/connections/${id}`)
-      loadConnections()
+      const conns = await loadConnections()
+      if (conns.some(c => c.is_active)) loadWorkspaces()
+      else setWorkspaces([])
     } catch {
       // ignore
     }
   }
+
+  const hasActiveConnection = connections.some(c => c.is_active)
 
   return (
     <div className="p-8">
@@ -273,6 +310,77 @@ export default function Sync() {
           </div>
         )}
       </section>
+
+      {/* Secção Workspaces */}
+      {hasActiveConnection && (
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="bg-zinc-800 rounded-lg p-2">
+                <Building2 className="w-5 h-5 text-brand" />
+              </div>
+              <div>
+                <h3 className="text-white font-medium">Workspaces</h3>
+                <p className="text-zinc-500 text-xs">Workspaces disponíveis na conta 21online.app</p>
+              </div>
+            </div>
+            <button
+              onClick={loadWorkspaces}
+              disabled={workspacesLoading}
+              className="flex items-center gap-2 text-zinc-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${workspacesLoading ? 'animate-spin' : ''}`} />
+              Atualizar
+            </button>
+          </div>
+
+          {workspacesLoading ? (
+            <div className="flex items-center gap-2 text-zinc-500 text-sm py-4">
+              <Loader2 className="w-4 h-4 animate-spin" />
+              A carregar workspaces...
+            </div>
+          ) : workspacesError ? (
+            <div className="bg-red-950/30 border border-red-800/40 rounded-xl px-5 py-4 flex items-center gap-3">
+              <XCircle className="w-5 h-5 text-red-400 shrink-0" />
+              <p className="text-red-300 text-sm">{workspacesError}</p>
+            </div>
+          ) : workspaces.length === 0 ? (
+            <div className="bg-zinc-900 border border-zinc-800 border-dashed rounded-xl p-8 text-center">
+              <Building2 className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
+              <p className="text-zinc-500 text-sm">Nenhum workspace encontrado.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {workspaces.map((ws, i) => {
+                const wsId = ws.id ?? ws.external_id ?? String(i)
+                const wsName = ws.name ?? ws.slug ?? `Workspace ${i + 1}`
+                const wsType = ws.type as string | undefined
+                return (
+                  <div
+                    key={String(wsId)}
+                    className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4 flex items-center gap-3"
+                  >
+                    <div className="bg-brand/10 rounded-lg p-2 shrink-0">
+                      <Building2 className="w-4 h-4 text-brand" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white text-sm font-medium truncate">{String(wsName)}</p>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        {wsType && (
+                          <span className="text-xs text-zinc-500 capitalize">{String(wsType)}</span>
+                        )}
+                        {ws.id && (
+                          <span className="text-xs text-zinc-700 font-mono truncate">{String(ws.id).slice(0, 8)}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Sync Jobs */}
       <section>
