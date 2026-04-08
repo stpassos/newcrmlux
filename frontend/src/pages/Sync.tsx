@@ -48,11 +48,20 @@ export default function Sync() {
     setFeedback(null)
     setSaving(true)
     try {
-      await api.post('/api/connections', { email, password })
-      setFeedback({ type: 'success', msg: 'Credenciais guardadas com sucesso.' })
-      setEmail('')
-      setPassword('')
-      setShowForm(false)
+      const res = await api.post<{ worker_valid: boolean | null; worker_error?: string }>('/api/connections', { email, password })
+      if (res.worker_valid === false) {
+        setFeedback({ type: 'error', msg: res.worker_error || 'Credenciais inválidas no 21online.app.' })
+      } else if (res.worker_valid === true) {
+        setFeedback({ type: 'success', msg: 'Credenciais guardadas e validadas com sucesso.' })
+        setEmail('')
+        setPassword('')
+        setShowForm(false)
+      } else {
+        setFeedback({ type: 'success', msg: 'Credenciais guardadas (validação indisponível).' })
+        setEmail('')
+        setPassword('')
+        setShowForm(false)
+      }
       loadConnections()
     } catch (err: unknown) {
       setFeedback({ type: 'error', msg: err instanceof Error ? err.message : 'Erro ao guardar.' })

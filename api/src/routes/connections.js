@@ -53,7 +53,29 @@ router.post('/', verifyToken, requireRole('admin'), async (req, res, next) => {
       );
     }
 
-    res.status(201).json(result.rows[0]);
+    const conn = result.rows[0];
+
+    // Validate credentials with Linux worker
+    let workerValid = null;
+    let workerError = null;
+    try {
+      const workerRes = await fetch('http://207.180.210.173:8080/api/21online/test-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-internal-api-key': process.env.INTERNAL_API_KEY,
+        },
+        body: JSON.stringify({ email: email.toLowerCase(), password }),
+        signal: AbortSignal.timeout(15000),
+      });
+      const workerData = await workerRes.json().catch(() => ({}));
+      workerValid = workerRes.ok;
+      if (!workerRes.ok) workerError = workerData.error || workerData.message || 'Erro de autenticação no 21online.app';
+    } catch (fetchErr) {
+      workerError = 'Não foi possível contactar o servidor de validação';
+    }
+
+    res.status(201).json({ ...conn, worker_valid: workerValid, worker_error: workerError });
   } catch (err) {
     next(err);
   }
