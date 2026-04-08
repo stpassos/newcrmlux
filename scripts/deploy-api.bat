@@ -3,7 +3,7 @@ setlocal
 
 echo [1/3] Git fetch + reset...
 cd /d C:\newcrmlux-api
-git fetch origin
+git fetch --prune --force origin
 if %ERRORLEVEL% neq 0 ( echo ERRO: git fetch falhou & exit /b 1 )
 git reset --hard origin/main
 if %ERRORLEVEL% neq 0 ( echo ERRO: git reset falhou & exit /b 1 )
