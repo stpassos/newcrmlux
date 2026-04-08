@@ -11,7 +11,7 @@ jobs:
     name: Build & Deploy to Plesk httpdocs
     runs-on: ubuntu-latest
     steps:
-      - name: SSH → pull + npm build + copy to httpdocs
+      - name: SSH → run deploy-frontend.bat
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.WINDOWS_VPS_HOST }}
@@ -19,7 +19,4 @@ jobs:
           password: ${{ secrets.WINDOWS_VPS_PASSWORD }}
           command_timeout: 15m
           script_stop: true
-          script: |
-            cd C:\newcrmlux-api && git pull origin main
-            cd C:\newcrmlux-api\frontend && npm install && npm run build
-            xcopy /E /Y /I C:\newcrmlux-api\frontend\dist\* C:\inetpub\vhosts\imodigital.pt\httpdocs\
+          script: C:\newcrmlux-api\scripts\deploy-frontend.bat
