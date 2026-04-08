@@ -1,10 +1,12 @@
 @echo off
 setlocal
 
-echo [1/4] Git pull...
+echo [1/4] Git fetch + reset...
 cd /d C:\newcrmlux-api
-git pull origin main
-if %ERRORLEVEL% neq 0 ( echo ERRO: git pull falhou & exit /b 1 )
+git fetch origin
+if %ERRORLEVEL% neq 0 ( echo ERRO: git fetch falhou & exit /b 1 )
+git reset --hard origin/main
+if %ERRORLEVEL% neq 0 ( echo ERRO: git reset falhou & exit /b 1 )
 
 echo [2/4] npm install...
 cd /d C:\newcrmlux-api\frontend

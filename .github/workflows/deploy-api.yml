@@ -13,12 +13,11 @@ jobs:
     name: Deploy API
     runs-on: ubuntu-latest
     steps:
-      - name: SSH → pull + restart PM2
+      - name: SSH → fetch + reset + npm install + pm2 restart
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.WINDOWS_VPS_HOST }}
           username: ${{ secrets.WINDOWS_VPS_USER }}
           password: ${{ secrets.WINDOWS_VPS_PASSWORD }}
           script_stop: true
-          script: |
-            cd C:\newcrmlux-api && git pull origin main && cd C:\newcrmlux-api\api && npm install --omit=dev && pm2 restart newcrmlux-api && pm2 save
+          script: C:\newcrmlux-api\scripts\deploy-api.bat
