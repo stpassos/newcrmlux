@@ -8,18 +8,18 @@ on:
 
 jobs:
   deploy:
-    name: Build & Deploy Frontend
+    name: Build & Deploy to Plesk httpdocs
     runs-on: ubuntu-latest
     steps:
-      - name: SSH → pull + docker build + service update
+      - name: SSH → pull + npm build + copy to httpdocs
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.LINUX_VPS_HOST }}
-          username: ${{ secrets.LINUX_VPS_USER }}
-          password: ${{ secrets.LINUX_VPS_PASSWORD }}
-          command_timeout: 10m
+          host: ${{ secrets.WINDOWS_VPS_HOST }}
+          username: ${{ secrets.WINDOWS_VPS_USER }}
+          password: ${{ secrets.WINDOWS_VPS_PASSWORD }}
+          command_timeout: 15m
           script_stop: true
           script: |
-            cd /opt/newcrmlux && git pull origin main
-            docker build -t imodigital-frontend:latest ./frontend/
-            docker service update --image imodigital-frontend:latest --force imodigital_imodigital
+            cd C:\newcrmlux-api && git pull origin main
+            cd C:\newcrmlux-api\frontend && npm install && npm run build
+            xcopy /E /Y /I C:\newcrmlux-api\frontend\dist\* C:\inetpub\vhosts\imodigital.pt\httpdocs\
