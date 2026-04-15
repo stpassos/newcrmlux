@@ -45,8 +45,14 @@ router.post('/map', verifyToken, requireRole('admin'), async (req, res, next) =>
     const conn = connResult.rows[0];
     if (!conn) return res.status(404).json({ error: 'Nenhuma conexão CRM ativa configurada.' });
 
-    // Normalise endpoint — ensure it starts with /
-    const path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    // Normalise endpoint — strip base domain if full URL, keep path+query
+    let path;
+    try {
+      const u = new URL(endpoint);
+      path = u.pathname + u.search; // e.g. /api/assets?workspaceID=...
+    } catch {
+      path = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+    }
 
     // Call WorkerLux-1 crm-fetch
     const workerRes = await fetch(`${WORKER_LUX1_URL}/api/21online/crm-fetch`, {
@@ -56,7 +62,7 @@ router.post('/map', verifyToken, requireRole('admin'), async (req, res, next) =>
         'x-internal-api-key': WORKER_LUX1_KEY,
       },
       body: JSON.stringify({ email: conn.email, password: conn.crm_password, path }),
-      signal: AbortSignal.timeout(30000),
+      signal: AbortSignal.timeout(90000),
     });
 
     const workerData = await workerRes.json().catch(() => ({}));
