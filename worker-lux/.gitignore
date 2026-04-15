@@ -1,0 +1,6 @@
+node_modules/
+.env
+env-worker1
+env-worker2
+data/
+*.log
