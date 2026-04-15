@@ -9,6 +9,7 @@ const propertiesRoutes = require('./routes/properties');
 const storageRoutes = require('./routes/storage');
 const syncRoutes = require('./routes/sync');
 const connectionsRoutes = require('./routes/connections');
+const workersRoutes = require('./routes/workers');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,6 +30,7 @@ app.use('/api/properties', propertiesRoutes);
 app.use('/api/storage', storageRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/connections', connectionsRoutes);
+app.use('/api/workers', workersRoutes);
 
 app.use(errorHandler);
 
