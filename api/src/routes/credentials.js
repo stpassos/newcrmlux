@@ -108,7 +108,7 @@ router.post('/:id/test', verifyToken, requireRole('admin'), async (req, res, nex
         signal: AbortSignal.timeout(20000),
       });
       const workerData = await workerRes.json().catch(() => ({}));
-      if (workerRes.ok) {
+      if (workerRes.ok && workerData.success === true) {
         testStatus = 'success';
       } else {
         testError = workerData.error || workerData.message || 'Autenticação falhou no 21online.app';

@@ -86,7 +86,7 @@ app.post("/api/21online/test-login", async (req, res) => {
     }
 
     const { login21online } = require("./src/auth21online");
-    const session = await login21online(email, password);
+    const session = await login21online(email, password, { forceRefresh: true });
 
     return res.json({
       success: true,
