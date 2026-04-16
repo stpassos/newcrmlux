@@ -17,14 +17,21 @@ const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 // Map pipeline endpoint_path → backfill entity name (worker supported entities)
 const PATH_TO_ENTITY = {
-  '/api/users':      'users',
-  '/api/assets':     'assets',
-  '/api/contacts':   'leads',
-  '/api/leads':      'leads',
-  '/api/proposals':  'proposals',
-  '/api/tasks':      'tasks',
-  '/api/calendar':   'calendar',
-  '/api/contracts':  'contracts',
+  '/api/users':        'users',
+  '/api/assets':       'assets',
+  '/api/contacts':     'leads',
+  '/api/leads':        'leads',
+  '/api/proposals':    'proposals',
+  '/api/tasks':        'tasks',
+  '/api/calendar':     'calendar',
+  '/api/contracts':    'contracts',
+  '/api/owners':       'owners',
+  '/api/buyers':       'buyers',
+  '/api/transactions': 'transactions',
+  '/api/referrals':    'referrals',
+  '/api/visits':       'visits',
+  '/api/documents':    'documents',
+  '/api/awards':       'awards',
 };
 
 // Active pipeline loops: pipelineId → { cancel: boolean }
