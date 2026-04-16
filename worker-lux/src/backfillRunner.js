@@ -358,10 +358,12 @@ async function runCalendarBackfill(ctx, params, workspaceCookiePair, entityIdx) 
     email, password, callbackUrl, callbackApiKey, calendar_from,
   } = params;
 
-  // Go 1 month into the future to capture upcoming visits/events
-  const futureDate = new Date();
-  futureDate.setMonth(futureDate.getMonth() + 1);
-  const months = calendarMonths(calendar_from || "2020-01-01", futureDate.toISOString());
+  // 14 months back from today, 14 months forward
+  const fromDate = new Date();
+  fromDate.setMonth(fromDate.getMonth() - 14);
+  const toDate = new Date();
+  toDate.setMonth(toDate.getMonth() + 14);
+  const months = calendarMonths(fromDate.toISOString(), toDate.toISOString());
 
   let entityFetched = 0;
   let entityStored  = 0;
