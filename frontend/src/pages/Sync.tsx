@@ -131,12 +131,45 @@ interface WorkersTabProps {
   onDeactivatePipeline: (pipelineId: string) => Promise<void>
 }
 
+interface PipelineBtnProps {
+  workerName: string
+  pipeline: Pipeline | undefined
+  busy: boolean
+  onActivate: () => void
+  onDeactivate: () => void
+}
+
+function PipelineBtn({ workerName: _n, pipeline, busy, onActivate, onDeactivate }: PipelineBtnProps) {
+  const isActive = pipeline?.is_active ?? false
+  if (isActive) {
+    return (
+      <button
+        disabled={busy}
+        onClick={onDeactivate}
+        className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800/60 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+        Desativar Pipeline
+      </button>
+    )
+  }
+  return (
+    <button
+      disabled={busy}
+      onClick={onActivate}
+      className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-brand hover:border-brand/50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+    >
+      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+      Ativar Pipeline
+    </button>
+  )
+}
+
 function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: WorkersTabProps) {
   const [workers, setWorkers] = useState<WorkerStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [pipelineOp, setPipelineOp] = useState<Record<string, boolean>>({})
-  const pipelineByName = (name: string) => pipelines.find(p => p.worker_name === name)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -260,43 +293,23 @@ function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: Wor
                   <span className="text-zinc-600 text-xs">HTTP {w.http_status ?? '—'}</span>
                   <span className="text-zinc-600 text-xs">{new Date(w.checked_at).toLocaleTimeString('pt-PT')}</span>
                 </div>
-                {/* Pipeline button */}
-                {(() => {
-                  const pl = pipelineByName(w.name)
-                  const isActive = pl?.is_active ?? false
-                  const busy = pipelineOp[w.name] ?? false
-                  if (isActive) {
-                    return (
-                      <button
-                        disabled={busy}
-                        onClick={async () => {
-                          if (!pl) return
-                          setPipelineOp(prev => ({ ...prev, [w.name]: true }))
-                          try { await onDeactivatePipeline(pl.id) }
-                          finally { setPipelineOp(prev => ({ ...prev, [w.name]: false })) }
-                        }}
-                        className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800/60 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                      >
-                        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                        Desativar Pipeline
-                      </button>
-                    )
-                  }
-                  return (
-                    <button
-                      disabled={busy}
-                      onClick={async () => {
-                        setPipelineOp(prev => ({ ...prev, [w.name]: true }))
-                        try { await onActivatePipeline(w) }
-                        finally { setPipelineOp(prev => ({ ...prev, [w.name]: false })) }
-                      }}
-                      className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-brand hover:border-brand/50 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-                    >
-                      {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-                      Ativar Pipeline
-                    </button>
-                  )
-                })()}
+                <PipelineBtn
+                  workerName={w.name}
+                  pipeline={pipelines.find(p => p.worker_name === w.name)}
+                  busy={pipelineOp[w.name] ?? false}
+                  onActivate={async () => {
+                    setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: true }))
+                    try { await onActivatePipeline(w) }
+                    finally { setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: false })) }
+                  }}
+                  onDeactivate={async () => {
+                    const pl = pipelines.find(p => p.worker_name === w.name)
+                    if (!pl) return
+                    setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: true }))
+                    try { await onDeactivatePipeline(pl.id) }
+                    finally { setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: false })) }
+                  }}
+                />
               </div>
             </div>
           ))}
