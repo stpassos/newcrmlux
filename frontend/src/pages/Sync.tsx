@@ -225,32 +225,43 @@ function WorkersTab() {
   )
 }
 
-// ─── Sync tab (conteúdo existente) ────────────────────────────────────────────
+// ─── Sync tab ─────────────────────────────────────────────────────────────────
 
 function SyncTab() {
-  const [connections, setConnections] = useState<CrmConnection[]>([])
-  const [loading, setLoading] = useState(true)
-  const [showForm, setShowForm] = useState(false)
+  const [activeConn, setActiveConn] = useState<CrmConnection | null>(null)
+  const [connLoading, setConnLoading] = useState(true)
 
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [showPassword, setShowPassword] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [credentials, setCredentials] = useState<Credential[]>([])
+  const [selectedCredId, setSelectedCredId] = useState('')
+  const [activating, setActivating] = useState(false)
+  const [activateError, setActivateError] = useState<string | null>(null)
+  const [activateSuccess, setActivateSuccess] = useState(false)
 
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [workspacesLoading, setWorkspacesLoading] = useState(false)
   const [workspacesError, setWorkspacesError] = useState<string | null>(null)
 
-  const loadConnections = useCallback(async () => {
+  const loadActiveConn = useCallback(async () => {
+    setConnLoading(true)
     try {
       const res = await api.get<{ data: CrmConnection[] }>('/api/connections')
-      setConnections(res.data)
-      return res.data
+      const active = res.data.find(c => c.is_active) ?? null
+      setActiveConn(active)
+      return active
     } catch {
-      return []
+      return null
     } finally {
-      setLoading(false)
+      setConnLoading(false)
+    }
+  }, [])
+
+  const loadCredentials = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: Credential[] }>('/api/credentials')
+      const active = res.data.filter(c => c.is_active)
+      setCredentials(active)
+    } catch {
+      setCredentials([])
     }
   }, [])
 
@@ -269,201 +280,123 @@ function SyncTab() {
   }, [])
 
   useEffect(() => {
-    loadConnections().then(conns => {
-      if (conns.some(c => c.is_active)) loadWorkspaces()
-    })
-  }, [loadConnections, loadWorkspaces])
+    loadCredentials()
+    loadActiveConn().then((conn: CrmConnection | null) => { if (conn) loadWorkspaces() })
+  }, [loadCredentials, loadActiveConn, loadWorkspaces])
 
-  const handleSave = async (e: FormEvent) => {
-    e.preventDefault()
-    setFeedback(null)
-    setSaving(true)
+  const handleActivate = async () => {
+    if (!selectedCredId) return
+    setActivating(true)
+    setActivateError(null)
+    setActivateSuccess(false)
     try {
-      const res = await api.post<{ worker_valid: boolean | null; worker_error?: string }>('/api/connections', { email, password })
-      if (res.worker_valid === false) {
-        setFeedback({ type: 'error', msg: res.worker_error || 'Credenciais inválidas no 21online.app.' })
-      } else if (res.worker_valid === true) {
-        setFeedback({ type: 'success', msg: 'Credenciais guardadas e validadas com sucesso.' })
-        setEmail(''); setPassword(''); setShowForm(false)
-      } else {
-        setFeedback({ type: 'success', msg: 'Credenciais guardadas (validação indisponível).' })
-        setEmail(''); setPassword(''); setShowForm(false)
-      }
-      const conns = await loadConnections()
-      if (conns.some(c => c.is_active)) loadWorkspaces()
+      await api.post('/api/connections/activate', { credential_id: selectedCredId })
+      setActivateSuccess(true)
+      setSelectedCredId('')
+      const conn = await loadActiveConn()
+      if (conn) loadWorkspaces()
     } catch (err: unknown) {
-      setFeedback({ type: 'error', msg: err instanceof Error ? err.message : 'Erro ao guardar.' })
+      setActivateError(err instanceof Error ? err.message : 'Erro ao ativar credencial.')
     } finally {
-      setSaving(false)
+      setActivating(false)
     }
   }
 
-  const handleToggle = async (conn: CrmConnection) => {
-    try {
-      await api.patch(`/api/connections/${conn.id}`, { is_active: !conn.is_active })
-      const conns = await loadConnections()
-      if (conns.some(c => c.is_active)) loadWorkspaces()
-      else setWorkspaces([])
-    } catch { /* ignore */ }
-  }
-
-  const handleDelete = async (id: string) => {
-    if (!confirm('Remover esta conexão?')) return
-    try {
-      await api.delete(`/api/connections/${id}`)
-      const conns = await loadConnections()
-      if (conns.some(c => c.is_active)) loadWorkspaces()
-      else setWorkspaces([])
-    } catch { /* ignore */ }
-  }
-
-  const hasActiveConnection = connections.some(c => c.is_active)
-
   return (
     <>
-      {/* Autenticação 21online */}
+      {/* Conexão ativa */}
       <section className="mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className="bg-zinc-800 rounded-lg p-2">
-              <FolderSync className="w-5 h-5 text-brand" />
-            </div>
-            <div>
-              <h3 className="text-white font-medium">Autenticação 21online.app</h3>
-              <p className="text-zinc-500 text-xs">Credenciais usadas para importar imóveis, leads e utilizadores</p>
-            </div>
+        <div className="flex items-center gap-3 mb-4">
+          <div className="bg-zinc-800 rounded-lg p-2">
+            <FolderSync className="w-5 h-5 text-brand" />
           </div>
-          {!showForm && (
-            <button
-              onClick={() => { setShowForm(true); setFeedback(null) }}
-              className="flex items-center gap-2 bg-brand hover:bg-brand-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          <div>
+            <h3 className="text-white font-medium">Conexão ativa</h3>
+            <p className="text-zinc-500 text-xs">Credencial utilizada para sincronizar dados com o 21online.app</p>
+          </div>
+        </div>
+
+        {/* Selector */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-4">
+          <p className="text-zinc-400 text-xs font-medium mb-3">Selecionar credencial</p>
+          <div className="flex gap-3">
+            <select
+              value={selectedCredId}
+              onChange={e => { setSelectedCredId(e.target.value); setActivateError(null); setActivateSuccess(false) }}
+              className="flex-1 bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors appearance-none cursor-pointer"
             >
-              <Plus className="w-4 h-4" />
-              {connections.length > 0 ? 'Atualizar credenciais' : 'Adicionar conta'}
+              <option value="">— Escolhe uma credencial ativa —</option>
+              {credentials.map(c => (
+                <option key={c.id} value={c.id}>
+                  {c.name}  ·  {c.email}
+                </option>
+              ))}
+            </select>
+            <button
+              onClick={handleActivate}
+              disabled={!selectedCredId || activating}
+              className="flex items-center gap-2 bg-brand hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors shrink-0"
+            >
+              {activating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+              Ativar
             </button>
+          </div>
+
+          {credentials.length === 0 && (
+            <p className="text-zinc-600 text-xs mt-2">
+              Nenhuma credencial ativa disponível — adiciona uma na tab <span className="text-zinc-400">Credenciais</span>.
+            </p>
+          )}
+
+          {activateError && (
+            <div className="flex items-center gap-2 mt-3 text-sm px-3 py-2.5 rounded-lg bg-red-950/50 border border-red-800/60 text-red-300">
+              <XCircle className="w-4 h-4 shrink-0" />{activateError}
+            </div>
+          )}
+          {activateSuccess && (
+            <div className="flex items-center gap-2 mt-3 text-sm px-3 py-2.5 rounded-lg bg-green-950/50 border border-green-800/60 text-green-300">
+              <CheckCircle2 className="w-4 h-4 shrink-0" />Conexão ativada com sucesso.
+            </div>
           )}
         </div>
 
-        {showForm && (
-          <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 mb-4">
-            <h4 className="text-white text-sm font-semibold mb-4">Credenciais de acesso ao 21online.app</h4>
-            <form onSubmit={handleSave} className="space-y-4">
-              {feedback && (
-                <div className={`flex items-center gap-2 text-sm px-4 py-3 rounded-lg ${
-                  feedback.type === 'success'
-                    ? 'bg-green-950/50 border border-green-800/60 text-green-300'
-                    : 'bg-red-950/50 border border-red-800/60 text-red-300'
-                }`}>
-                  {feedback.type === 'success'
-                    ? <CheckCircle2 className="w-4 h-4 shrink-0" />
-                    : <XCircle className="w-4 h-4 shrink-0" />}
-                  {feedback.msg}
-                </div>
-              )}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-zinc-400">Email 21online.app</label>
-                  <input
-                    type="email" value={email} onChange={e => setEmail(e.target.value)}
-                    placeholder="email@exemplo.com" required
-                    className="w-full bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-zinc-400">Password 21online.app</label>
-                  <div className="relative">
-                    <input
-                      type={showPassword ? 'text' : 'password'} value={password}
-                      onChange={e => setPassword(e.target.value)} placeholder="••••••••" required
-                      className="w-full bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-600 rounded-lg px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
-                    />
-                    <button type="button" onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300" tabIndex={-1}>
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 pt-1">
-                <button type="submit" disabled={saving}
-                  className="flex items-center gap-2 bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors">
-                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                  Guardar credenciais
-                </button>
-                <button type="button" onClick={() => { setShowForm(false); setFeedback(null) }}
-                  className="text-zinc-400 hover:text-white text-sm px-4 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors">
-                  Cancelar
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
-        {loading ? (
-          <div className="flex items-center gap-2 text-zinc-500 text-sm py-4">
+        {/* Active connection status */}
+        {connLoading ? (
+          <div className="flex items-center gap-2 text-zinc-500 text-sm py-3">
             <Loader2 className="w-4 h-4 animate-spin" />A carregar...
           </div>
-        ) : connections.length === 0 ? (
-          <div className="bg-zinc-900 border border-zinc-800 border-dashed rounded-xl p-8 text-center">
-            <WifiOff className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
-            <p className="text-zinc-500 text-sm">Nenhuma conta 21online.app configurada.</p>
-            <p className="text-zinc-600 text-xs mt-1">Adiciona as credenciais para ativar a sincronização.</p>
+        ) : activeConn ? (
+          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4 flex items-center gap-3">
+            <div className="p-1.5 rounded-full bg-green-500/10 shrink-0">
+              <Wifi className="w-4 h-4 text-green-400" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-white text-sm font-medium truncate">{activeConn.email}</p>
+              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                <span className="text-xs font-medium text-green-400">Ativa</span>
+                {activeConn.has_session && (
+                  <span className="text-xs text-zinc-500 flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 text-green-500" />Sessão válida
+                  </span>
+                )}
+                {activeConn.last_sync_at && (
+                  <span className="text-xs text-zinc-600">
+                    Último sync: {new Date(activeConn.last_sync_at).toLocaleDateString('pt-PT')}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
         ) : (
-          <div className="space-y-3">
-            {connections.map(conn => (
-              <div key={conn.id} className="bg-zinc-900 border border-zinc-800 rounded-xl px-5 py-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`p-1.5 rounded-full ${conn.is_active ? 'bg-green-500/10' : 'bg-zinc-800'}`}>
-                    {conn.is_active
-                      ? <Wifi className="w-4 h-4 text-green-400" />
-                      : <WifiOff className="w-4 h-4 text-zinc-500" />}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-white text-sm font-medium truncate">{conn.email}</p>
-                    <div className="flex items-center gap-3 mt-0.5">
-                      <span className={`text-xs font-medium ${conn.is_active ? 'text-green-400' : 'text-zinc-500'}`}>
-                        {conn.is_active ? 'Ativa' : 'Inativa'}
-                      </span>
-                      {conn.has_session && (
-                        <span className="text-xs text-zinc-500 flex items-center gap-1">
-                          <CheckCircle2 className="w-3 h-3 text-green-500" />Sessão válida
-                        </span>
-                      )}
-                      {conn.last_sync_at && (
-                        <span className="text-xs text-zinc-600">
-                          Último sync: {new Date(conn.last_sync_at).toLocaleDateString('pt-PT')}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button onClick={() => { setEmail(conn.email); setShowForm(true); setFeedback(null) }}
-                    className="text-zinc-400 hover:text-white p-2 rounded-lg hover:bg-zinc-800 transition-colors" title="Atualizar password">
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
-                  <button onClick={() => handleToggle(conn)}
-                    className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
-                      conn.is_active
-                        ? 'border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800'
-                        : 'border-green-800/50 text-green-400 hover:bg-green-950/30'
-                    }`}>
-                    {conn.is_active ? 'Desativar' : 'Ativar'}
-                  </button>
-                  <button onClick={() => handleDelete(conn.id)}
-                    className="text-zinc-600 hover:text-red-400 p-2 rounded-lg hover:bg-zinc-800 transition-colors" title="Remover">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))}
+          <div className="bg-zinc-900 border border-zinc-800 border-dashed rounded-xl p-6 text-center">
+            <WifiOff className="w-7 h-7 text-zinc-700 mx-auto mb-2" />
+            <p className="text-zinc-500 text-sm">Nenhuma conexão ativa.</p>
           </div>
         )}
       </section>
 
       {/* Workspaces */}
-      {hasActiveConnection && (
+      {!!activeConn && (
         <section className="mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">

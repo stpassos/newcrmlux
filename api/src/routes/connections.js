@@ -98,6 +98,59 @@ router.patch('/:id', verifyToken, requireRole('admin'), async (req, res, next) =
   }
 });
 
+// POST /api/connections/activate — ativa uma credencial c21_credentials como conexão CRM
+router.post('/activate', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const { credential_id } = req.body;
+    if (!credential_id) {
+      return res.status(400).json({ error: 'credential_id é obrigatório' });
+    }
+
+    const credResult = await pool.query(
+      'SELECT id, name, email, crm_password, is_active FROM c21_credentials WHERE id = $1',
+      [credential_id]
+    );
+    const cred = credResult.rows[0];
+    if (!cred) return res.status(404).json({ error: 'Credencial não encontrada' });
+    if (!cred.is_active) return res.status(400).json({ error: 'A credencial selecionada está inativa' });
+
+    // Desativar todas as conexões existentes
+    await pool.query('UPDATE crm_connections SET is_active = false, updated_at = NOW()');
+
+    // Upsert por email
+    const existing = await pool.query(
+      'SELECT id FROM crm_connections WHERE email = $1',
+      [cred.email]
+    );
+
+    let conn;
+    if (existing.rows[0]) {
+      const r = await pool.query(
+        `UPDATE crm_connections
+         SET crm_password = $1, is_active = true, encrypted_session = NULL, updated_at = NOW()
+         WHERE email = $2
+         RETURNING id, email, base_url, workspace_id, workspace_name, is_active, last_sync_at, created_at,
+                   CASE WHEN encrypted_session IS NOT NULL THEN true ELSE false END AS has_session`,
+        [cred.crm_password, cred.email]
+      );
+      conn = r.rows[0];
+    } else {
+      const r = await pool.query(
+        `INSERT INTO crm_connections (email, crm_password, base_url, is_active)
+         VALUES ($1, $2, 'https://21online.app', true)
+         RETURNING id, email, base_url, workspace_id, workspace_name, is_active, last_sync_at, created_at,
+                   false AS has_session`,
+        [cred.email, cred.crm_password]
+      );
+      conn = r.rows[0];
+    }
+
+    res.json({ ...conn, credential_name: cred.name });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /api/connections/workspaces — lista workspaces disponíveis no 21online.app
 router.get('/workspaces', verifyToken, requireRole('admin'), async (req, res, next) => {
   try {
