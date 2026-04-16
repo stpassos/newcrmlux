@@ -160,6 +160,10 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
           [msg, jobId]
         );
         endpointStatus = 'error';
+        // Still honour the interval even on rejection (prevents rapid-fire when worker is busy)
+        const rejectWaitMs = randomBetween(intervalMin, intervalMax);
+        console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name}: waiting ${Math.round(rejectWaitMs / 1000)}s after rejection`);
+        await sleep(rejectWaitMs);
         continue;
       }
 
