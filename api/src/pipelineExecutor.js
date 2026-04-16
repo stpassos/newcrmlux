@@ -73,7 +73,7 @@ async function fetchWorkspacesFromWorker(email, password) {
 
 // ─── Single endpoint execution ────────────────────────────────────────────────
 
-async function runEndpoint(pipelineId, ep) {
+async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
   const entity = PATH_TO_ENTITY[ep.endpoint_path];
   if (!entity) {
     console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: path ${ep.endpoint_path} not supported by worker — skip`);
@@ -183,6 +183,11 @@ async function runEndpoint(pipelineId, ep) {
       );
       endpointStatus = 'error';
     }
+
+    // Random interval after each workspace job
+    const waitMs = randomBetween(intervalMin, intervalMax);
+    console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name}: waiting ${Math.round(waitMs / 1000)}s before next job`);
+    await sleep(waitMs);
   }
 
   // Update endpoint final stats
@@ -267,14 +272,7 @@ async function runPipelineLoop(pipelineId) {
           }
         }
 
-        await runEndpoint(pipelineId, ep);
-
-        if (ctx.cancel) break;
-
-        // Random interval between endpoints
-        const waitMs = randomBetween(pipeline.interval_min, pipeline.interval_max);
-        console.log(`[pipeline:${pipelineId}] Waiting ${Math.round(waitMs / 1000)}s before next endpoint`);
-        await sleep(waitMs);
+        await runEndpoint(pipelineId, ep, pipeline.interval_min, pipeline.interval_max);
       }
 
       if (ctx.cancel) break;
