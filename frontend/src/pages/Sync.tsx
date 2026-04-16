@@ -4,10 +4,11 @@ import {
   FolderSync, Plus, Trash2, Eye, EyeOff,
   CheckCircle2, XCircle, Loader2, RefreshCw, Wifi, WifiOff,
   Building2, Server, Activity, GitBranch, Search, ChevronRight,
-  KeyRound, FlaskConical, Save, Ban, Pencil, Zap, X
+  KeyRound, FlaskConical, Save, Ban, Pencil, Zap, X, Database
 } from 'lucide-react'
 import PipelineTab, { type Pipeline } from '@/components/PipelineTab'
 import ServerMonitorTab from '@/components/ServerMonitorTab'
+import DatabaseTab from '@/components/DatabaseTab'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ function TabBar({ active, onChange, pipelineTabs, onClosePipelineTab }: TabBarPr
     { id: 'endpoints',      label: 'EndPoints',     icon: <GitBranch className="w-4 h-4" /> },
     { id: 'credentials',    label: 'Credenciais',   icon: <KeyRound className="w-4 h-4" /> },
     { id: 'server-monitor', label: 'Server Monitor',icon: <Activity className="w-4 h-4" /> },
+    { id: 'database',       label: 'Base de Dados', icon: <Database className="w-4 h-4" /> },
   ]
   return (
     <div className="flex gap-1 border-b border-zinc-800 mb-8 flex-wrap">
@@ -1201,6 +1203,7 @@ export default function Sync() {
 
       {tab === 'sync'           && <SyncTab />}
       {tab === 'server-monitor' && <ServerMonitorTab />}
+      {tab === 'database'       && <DatabaseTab />}
       {tab === 'workers'     && (
         <WorkersTab
           pipelines={pipelines}

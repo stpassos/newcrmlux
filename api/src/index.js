@@ -14,6 +14,7 @@ const endpointsRoutes = require('./routes/endpoints');
 const credentialsRoutes = require('./routes/credentials');
 const pipelinesRoutes = require('./routes/pipelines');
 const serverMonitorRoutes = require('./routes/server-monitor');
+const databaseRoutes      = require('./routes/database');
 const { resumeOnStartup } = require('./pipelineExecutor');
 
 const app = express();
@@ -40,6 +41,7 @@ app.use('/api/endpoints', endpointsRoutes);
 app.use('/api/credentials', credentialsRoutes);
 app.use('/api/pipelines', pipelinesRoutes);
 app.use('/api/server-monitor', serverMonitorRoutes);
+app.use('/api/database',      databaseRoutes);
 
 app.use(errorHandler);
 
