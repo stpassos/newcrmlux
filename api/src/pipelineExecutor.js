@@ -345,6 +345,17 @@ async function resumeOnStartup() {
        WHERE status = 'running'`
     );
 
+    // Fix any jobs stuck in 'running' state from a previous API session
+    const staleJobs = await pool.query(
+      `UPDATE c21_pipeline_jobs
+       SET status = 'error', error_msg = 'Stale job — API restarted', finished_at = now()
+       WHERE status = 'running'
+       RETURNING id`
+    );
+    if (staleJobs.rowCount > 0) {
+      console.log(`[pipelineExecutor] Cleared ${staleJobs.rowCount} stale running job(s) on startup`);
+    }
+
     // Resume pipeline loops for all pipelines still marked as running
     const result = await pool.query(
       `SELECT id FROM c21_pipelines WHERE status = 'running'`
