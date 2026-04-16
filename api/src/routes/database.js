@@ -7,17 +7,8 @@
  */
 
 const express = require('express');
-const { Pool }  = require('pg');
+const pool    = require('../db/pool');
 const { verifyToken, requireRole } = require('../middleware/auth');
-
-// The entity data lives in the worker's DB (crm-lux-windowsvps), not in newcrmlux
-const pool = new Pool({
-  connectionString: process.env.WORKER_DB_URL ||
-    `postgresql://crm-lux-windowsvps:${process.env.DB_PASSWORD}@${process.env.DB_HOST || 'localhost'}:${process.env.DB_PORT || 5432}/crm-lux-windowsvps`,
-  max: 5,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 3000,
-});
 
 const router = express.Router();
 

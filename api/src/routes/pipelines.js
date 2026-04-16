@@ -7,6 +7,22 @@ const router = express.Router();
 
 const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
 
+// Maps worker entity names → c21_ table names
+const ENTITY_TABLE = {
+  users:        'c21_agents',
+  leads:        'c21_contacts',
+  assets:       'c21_assets',
+  owners:       'c21_owners',
+  buyers:       'c21_buyers',
+  transactions: 'c21_transactions',
+  referrals:    'c21_referrals',
+  visits:       'c21_visits',
+  proposals:    'c21_proposals',
+  documents:    'c21_documents',
+  awards:       'c21_awards',
+  workspaces:   'c21_workspaces',
+};
+
 // ─── POST /api/pipelines/callback — called by worker (no JWT, key-protected) ─
 router.post('/callback', async (req, res) => {
   // Verify internal API key
@@ -37,8 +53,35 @@ router.post('/callback', async (req, res) => {
     }
 
     if (event === 'records') {
-      // Acknowledge records; update fetched count optimistically
-      const records = Array.isArray(data.records) ? data.records : [];
+      const records    = Array.isArray(data.records) ? data.records : [];
+      const entity     = data.entity || null;
+      const workspaceId = data.workspace_id || data.workspace_external_id || null;
+      let stored = 0;
+
+      if (records.length > 0 && entity) {
+        const table = ENTITY_TABLE[entity];
+        if (table) {
+          // Upsert each record — use id/external_id from the record as the dedup key
+          for (const rec of records) {
+            const extId = String(rec.id || rec.external_id || rec.slug || '');
+            if (!extId) continue;
+            try {
+              await pool.query(
+                `INSERT INTO ${table} (external_id, workspace_id, data, imported_at, updated_at)
+                 VALUES ($1, $2, $3, now(), now())
+                 ON CONFLICT (external_id)
+                 DO UPDATE SET data = EXCLUDED.data, workspace_id = EXCLUDED.workspace_id, updated_at = now()`,
+                [extId, workspaceId, JSON.stringify(rec)]
+              );
+              stored++;
+            } catch (e) {
+              // Table may not exist yet — ignore silently
+            }
+          }
+        }
+      }
+
+      // Update job fetched count
       if (records.length > 0 && job_id) {
         await pool.query(
           `UPDATE c21_pipeline_jobs
@@ -47,7 +90,8 @@ router.post('/callback', async (req, res) => {
           [records.length, job_id]
         ).catch(() => {});
       }
-      return res.json({ stored: records.length });
+
+      return res.json({ stored: stored || records.length });
     }
 
     if (event === 'progress' && job_id) {
