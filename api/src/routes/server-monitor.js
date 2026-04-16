@@ -132,7 +132,7 @@ router.get('/current', verifyToken, requireRole('admin'), async (req, res, next)
          MAX(CASE WHEN status = 'error' THEN started_at END)  AS last_error_at
        FROM (
          SELECT
-           duration_ms, status, error_msg,
+           duration_ms, status, error_msg, started_at,
            EXTRACT(EPOCH FROM (started_at - lag(finished_at) OVER (ORDER BY started_at))) * 1000 AS queue_gap_ms
          FROM (
            SELECT * FROM c21_pipeline_jobs ORDER BY started_at DESC LIMIT 50
