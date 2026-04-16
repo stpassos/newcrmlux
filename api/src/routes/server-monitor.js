@@ -123,22 +123,29 @@ router.get('/current', verifyToken, requireRole('admin'), async (req, res, next)
       ),
     ]);
 
-    // Average execution time (last 50 done jobs)
-    const avgRow = await pool.query(
-      `SELECT
-         AVG(duration_ms)   AS avg_duration_ms,
-         AVG(queue_gap_ms)  AS avg_queue_ms,
-         MAX(CASE WHEN status = 'error' THEN error_msg END)   AS last_error,
-         MAX(CASE WHEN status = 'error' THEN started_at END)  AS last_error_at
-       FROM (
-         SELECT
-           duration_ms, status, error_msg, started_at,
-           EXTRACT(EPOCH FROM (started_at - lag(finished_at) OVER (ORDER BY started_at))) * 1000 AS queue_gap_ms
+    // Average execution time + last error (last 50 jobs)
+    const [avgRow, lastErrRow] = await Promise.all([
+      pool.query(
+        `SELECT
+           AVG(duration_ms)  AS avg_duration_ms,
+           AVG(queue_gap_ms) AS avg_queue_ms
          FROM (
-           SELECT * FROM c21_pipeline_jobs ORDER BY started_at DESC LIMIT 50
-         ) sub
-       ) recent`
-    );
+           SELECT
+             duration_ms,
+             EXTRACT(EPOCH FROM (started_at - lag(finished_at) OVER (ORDER BY started_at))) * 1000 AS queue_gap_ms
+           FROM (
+             SELECT * FROM c21_pipeline_jobs ORDER BY started_at DESC LIMIT 50
+           ) sub
+         ) recent`
+      ),
+      pool.query(
+        `SELECT error_msg, started_at
+         FROM c21_pipeline_jobs
+         WHERE status = 'error' AND error_msg IS NOT NULL
+         ORDER BY started_at DESC
+         LIMIT 1`
+      ),
+    ]);
 
     res.json({
       server:        serverRow.rows[0]  || null,
@@ -148,8 +155,8 @@ router.get('/current', verifyToken, requireRole('admin'), async (req, res, next)
       jobs_queued:   parseInt(runningJobs.rows[0]?.queued  || '0'),
       avg_duration_ms: parseFloat(avgRow.rows[0]?.avg_duration_ms || '0') || 0,
       avg_queue_ms:    parseFloat(avgRow.rows[0]?.avg_queue_ms    || '0') || 0,
-      last_error:      avgRow.rows[0]?.last_error    || null,
-      last_error_at:   avgRow.rows[0]?.last_error_at || null,
+      last_error:      lastErrRow.rows[0]?.error_msg  || null,
+      last_error_at:   lastErrRow.rows[0]?.started_at || null,
       last_updated:    serverRow.rows[0]?.collected_at || null,
     });
   } catch (err) {
