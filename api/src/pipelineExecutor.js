@@ -12,7 +12,7 @@ const pool = require('./db/pool');
 
 const WORKER_URL      = process.env.WORKER_LUX1_URL  || 'http://207.180.210.173:8080';
 const WORKER_KEY      = process.env.WORKER_LUX1_KEY  || process.env.INTERNAL_API_KEY || '';
-const API_BASE_URL    = process.env.API_BASE_URL      || 'http://149.102.156.188:4000';
+const API_BASE_URL    = process.env.API_BASE_URL      || 'http://imodigital.pt';
 const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
 
 // Map pipeline endpoint_path → backfill entity name (worker supported entities)
