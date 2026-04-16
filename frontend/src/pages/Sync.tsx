@@ -7,6 +7,7 @@ import {
   KeyRound, FlaskConical, Save, Ban, Pencil, Zap, X
 } from 'lucide-react'
 import PipelineTab, { type Pipeline } from '@/components/PipelineTab'
+import ServerMonitorTab from '@/components/ServerMonitorTab'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -76,10 +77,11 @@ interface TabBarProps {
 
 function TabBar({ active, onChange, pipelineTabs, onClosePipelineTab }: TabBarProps) {
   const staticTabs: { id: Tab; label: string; icon: ReactNode }[] = [
-    { id: 'sync',        label: 'Sincronização', icon: <FolderSync className="w-4 h-4" /> },
-    { id: 'workers',     label: 'Workers',       icon: <Server className="w-4 h-4" /> },
-    { id: 'endpoints',   label: 'EndPoints',     icon: <GitBranch className="w-4 h-4" /> },
-    { id: 'credentials', label: 'Credenciais',   icon: <KeyRound className="w-4 h-4" /> },
+    { id: 'sync',           label: 'Sincronização', icon: <FolderSync className="w-4 h-4" /> },
+    { id: 'workers',        label: 'Workers',       icon: <Server className="w-4 h-4" /> },
+    { id: 'endpoints',      label: 'EndPoints',     icon: <GitBranch className="w-4 h-4" /> },
+    { id: 'credentials',    label: 'Credenciais',   icon: <KeyRound className="w-4 h-4" /> },
+    { id: 'server-monitor', label: 'Server Monitor',icon: <Activity className="w-4 h-4" /> },
   ]
   return (
     <div className="flex gap-1 border-b border-zinc-800 mb-8 flex-wrap">
@@ -1197,7 +1199,8 @@ export default function Sync() {
         onClosePipelineTab={handleClosePipelineTab}
       />
 
-      {tab === 'sync'        && <SyncTab />}
+      {tab === 'sync'           && <SyncTab />}
+      {tab === 'server-monitor' && <ServerMonitorTab />}
       {tab === 'workers'     && (
         <WorkersTab
           pipelines={pipelines}
