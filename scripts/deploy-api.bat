@@ -15,7 +15,7 @@ call npm install --omit=dev
 if %ERRORLEVEL% neq 0 ( echo ERRO: npm install falhou & exit /b 1 )
 
 echo [3/3] pm2 restart...
-pm2 restart newcrmlux-api
+pm2 startOrRestart C:\newcrmlux-api\api\ecosystem.config.js --update-env
 if %ERRORLEVEL% neq 0 ( echo ERRO: pm2 restart falhou & exit /b 1 )
 pm2 save
 
