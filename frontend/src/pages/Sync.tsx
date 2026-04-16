@@ -4,7 +4,8 @@ import {
   FolderSync, Plus, Trash2, Eye, EyeOff,
   CheckCircle2, XCircle, Loader2, RefreshCw, Wifi, WifiOff,
   Building2, Server, Activity, GitBranch, Search, ChevronRight,
-  KeyRound, FlaskConical, Save, Ban, Pencil, Zap, X, Database
+  KeyRound, FlaskConical, Save, Ban, Pencil, Zap, X, Database,
+  RotateCcw, PowerOff, Terminal, ChevronDown, ChevronUp
 } from 'lucide-react'
 import PipelineTab, { type Pipeline } from '@/components/PipelineTab'
 import ServerMonitorTab from '@/components/ServerMonitorTab'
@@ -169,11 +170,17 @@ function PipelineBtn({ workerName: _n, pipeline, busy, onActivate, onDeactivate 
   )
 }
 
+interface WorkerLogLine { text: string; level: 'info' | 'warn' | 'error' }
+
 function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: WorkersTabProps) {
   const [workers, setWorkers] = useState<WorkerStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [pipelineOp, setPipelineOp] = useState<Record<string, boolean>>({})
+  const [workerOp, setWorkerOp] = useState<Record<string, 'restarting' | 'stopping' | null>>({})
+  const [workerLogs, setWorkerLogs] = useState<Record<string, WorkerLogLine[]>>({})
+  const [logsOpen, setLogsOpen] = useState<Record<string, boolean>>({})
+  const [logsLoading, setLogsLoading] = useState<Record<string, boolean>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -189,6 +196,42 @@ function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: Wor
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  const handleRestart = async (name: string) => {
+    setWorkerOp(p => ({ ...p, [name]: 'restarting' }))
+    try {
+      await api.post(`/api/workers/${name}/restart`, {})
+      setTimeout(() => load(), 2000)
+    } catch { /* worker may disconnect mid-restart — that's expected */ }
+    finally { setTimeout(() => setWorkerOp(p => ({ ...p, [name]: null })), 3000) }
+  }
+
+  const handleStop = async (name: string) => {
+    setWorkerOp(p => ({ ...p, [name]: 'stopping' }))
+    try {
+      await api.post(`/api/workers/${name}/stop`, {})
+      setTimeout(() => load(), 2000)
+    } catch { /* disconnect on stop is expected */ }
+    finally { setTimeout(() => setWorkerOp(p => ({ ...p, [name]: null })), 3000) }
+  }
+
+  const handleLoadLogs = async (name: string) => {
+    setLogsLoading(p => ({ ...p, [name]: true }))
+    try {
+      const res = await api.get<{ success: boolean; logs: WorkerLogLine[] }>(`/api/workers/${name}/logs?lines=150`)
+      setWorkerLogs(p => ({ ...p, [name]: res.logs || [] }))
+    } catch (err) {
+      setWorkerLogs(p => ({ ...p, [name]: [{ text: err instanceof Error ? err.message : 'Erro ao carregar logs', level: 'error' }] }))
+    } finally {
+      setLogsLoading(p => ({ ...p, [name]: false }))
+    }
+  }
+
+  const toggleLogs = (name: string) => {
+    const willOpen = !logsOpen[name]
+    setLogsOpen(p => ({ ...p, [name]: willOpen }))
+    if (willOpen && !workerLogs[name]) handleLoadLogs(name)
+  }
 
   const statusColor = (s: WorkerStatus['status']) =>
     s === 'online' ? 'text-green-400' : 'text-red-400'
@@ -292,29 +335,104 @@ function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: Wor
               )}
 
               {/* Footer */}
-              <div className="mt-3 pt-3 border-t border-zinc-800 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="text-zinc-600 text-xs">HTTP {w.http_status ?? '—'}</span>
-                  <span className="text-zinc-600 text-xs">{new Date(w.checked_at).toLocaleTimeString('pt-PT')}</span>
+              <div className="mt-3 pt-3 border-t border-zinc-800 space-y-2">
+                {/* Row 1: meta + pipeline btn */}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-zinc-600 text-xs">HTTP {w.http_status ?? '—'}</span>
+                    <span className="text-zinc-600 text-xs">{new Date(w.checked_at).toLocaleTimeString('pt-PT')}</span>
+                  </div>
+                  <PipelineBtn
+                    workerName={w.name}
+                    pipeline={pipelines.find(p => p.worker_name === w.name)}
+                    busy={pipelineOp[w.name] ?? false}
+                    onActivate={async () => {
+                      setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: true }))
+                      try { await onActivatePipeline(w) }
+                      finally { setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: false })) }
+                    }}
+                    onDeactivate={async () => {
+                      const pl = pipelines.find(p => p.worker_name === w.name)
+                      if (!pl) return
+                      setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: true }))
+                      try { await onDeactivatePipeline(pl.id) }
+                      finally { setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: false })) }
+                    }}
+                  />
                 </div>
-                <PipelineBtn
-                  workerName={w.name}
-                  pipeline={pipelines.find(p => p.worker_name === w.name)}
-                  busy={pipelineOp[w.name] ?? false}
-                  onActivate={async () => {
-                    setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: true }))
-                    try { await onActivatePipeline(w) }
-                    finally { setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: false })) }
-                  }}
-                  onDeactivate={async () => {
-                    const pl = pipelines.find(p => p.worker_name === w.name)
-                    if (!pl) return
-                    setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: true }))
-                    try { await onDeactivatePipeline(pl.id) }
-                    finally { setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: false })) }
-                  }}
-                />
+
+                {/* Row 2: Restart / Stop / Logs */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={() => handleRestart(w.name)}
+                    disabled={!!workerOp[w.name]}
+                    title="Reiniciar Worker (PM2 auto-restart)"
+                    className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-green-400 hover:border-green-800/60 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                  >
+                    {workerOp[w.name] === 'restarting'
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <RotateCcw className="w-3.5 h-3.5" />}
+                    Reiniciar
+                  </button>
+
+                  <button
+                    onClick={() => handleStop(w.name)}
+                    disabled={!!workerOp[w.name]}
+                    title="Parar Worker (PM2 stop)"
+                    className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800/60 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-40"
+                  >
+                    {workerOp[w.name] === 'stopping'
+                      ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      : <PowerOff className="w-3.5 h-3.5" />}
+                    Parar
+                  </button>
+
+                  <button
+                    onClick={() => toggleLogs(w.name)}
+                    className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600 px-3 py-1.5 rounded-lg transition-colors ml-auto"
+                  >
+                    <Terminal className="w-3.5 h-3.5" />
+                    Logs
+                    {logsOpen[w.name] ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  </button>
+                </div>
               </div>
+
+              {/* Logs panel */}
+              {logsOpen[w.name] && (
+                <div className="mt-3 border border-zinc-800 rounded-lg overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-zinc-800/60 border-b border-zinc-800">
+                    <span className="text-xs text-zinc-400 font-mono">PM2 Logs — {w.name}</span>
+                    <button
+                      onClick={() => handleLoadLogs(w.name)}
+                      disabled={logsLoading[w.name]}
+                      className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${logsLoading[w.name] ? 'animate-spin' : ''}`} />
+                    </button>
+                  </div>
+
+                  {logsLoading[w.name] ? (
+                    <div className="flex items-center gap-2 text-zinc-500 text-xs px-3 py-3">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />A carregar logs…
+                    </div>
+                  ) : (workerLogs[w.name] || []).length === 0 ? (
+                    <p className="text-zinc-600 text-xs px-3 py-3">Sem logs disponíveis.</p>
+                  ) : (
+                    <div className="max-h-64 overflow-y-auto p-2 space-y-0.5 font-mono text-xs bg-zinc-950">
+                      {(workerLogs[w.name] || []).map((line, i) => (
+                        <div key={i} className={`px-2 py-0.5 rounded leading-5 break-all whitespace-pre-wrap ${
+                          line.level === 'error' ? 'bg-red-950/40 text-red-300'
+                          : line.level === 'warn'  ? 'bg-yellow-950/30 text-yellow-300'
+                          : 'text-zinc-400'
+                        }`}>
+                          {line.text}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           ))}
         </div>

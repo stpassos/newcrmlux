@@ -7,10 +7,12 @@ const WORKERS = [
   {
     name: 'WorkerLux-1',
     url: process.env.WORKER_LUX1_URL || 'http://173.249.49.92:8080',
+    key: process.env.WORKER_LUX1_KEY || '',
   },
   {
     name: 'WorkerLux-2',
     url: process.env.WORKER_LUX2_URL || 'http://173.249.49.92:8081',
+    key: process.env.WORKER_LUX2_KEY || process.env.WORKER_LUX1_KEY || '',
   },
 ];
 
@@ -50,6 +52,57 @@ router.get('/status', verifyToken, requireRole('admin'), async (req, res, next) 
   try {
     const results = await Promise.all(WORKERS.map(checkWorker));
     res.json({ data: results });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/workers/:name/restart
+router.post('/:name/restart', verifyToken, requireRole('admin'), async (req, res, next) => {
+  const worker = WORKERS.find(w => w.name === req.params.name);
+  if (!worker) return res.status(404).json({ error: 'Worker not found' });
+  try {
+    const r = await fetch(`${worker.url}/api/admin/restart`, {
+      method: 'POST',
+      headers: { 'x-internal-api-key': worker.key },
+      signal: AbortSignal.timeout(6000),
+    });
+    const data = await r.json().catch(() => ({}));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/workers/:name/stop
+router.post('/:name/stop', verifyToken, requireRole('admin'), async (req, res, next) => {
+  const worker = WORKERS.find(w => w.name === req.params.name);
+  if (!worker) return res.status(404).json({ error: 'Worker not found' });
+  try {
+    const r = await fetch(`${worker.url}/api/admin/stop`, {
+      method: 'POST',
+      headers: { 'x-internal-api-key': worker.key },
+      signal: AbortSignal.timeout(6000),
+    });
+    const data = await r.json().catch(() => ({}));
+    res.json(data);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/workers/:name/logs
+router.get('/:name/logs', verifyToken, requireRole('admin'), async (req, res, next) => {
+  const worker = WORKERS.find(w => w.name === req.params.name);
+  if (!worker) return res.status(404).json({ error: 'Worker not found' });
+  try {
+    const lines = req.query.lines || 100;
+    const r = await fetch(`${worker.url}/api/admin/logs?lines=${lines}`, {
+      headers: { 'x-internal-api-key': worker.key },
+      signal: AbortSignal.timeout(15000),
+    });
+    const data = await r.json().catch(() => ({ success: false, logs: [], raw: '' }));
+    res.json(data);
   } catch (err) {
     next(err);
   }
