@@ -17,6 +17,7 @@ const TABLE_META = [
   { table: 'c21_agents',        label: 'Agentes',      endpoint: '/api/users'        },
   { table: 'c21_contacts',      label: 'Contactos',    endpoint: '/api/contacts'     },
   { table: 'c21_leads',         label: 'Leads',        endpoint: '/api/leads'        },
+  { table: 'c21_calendar',      label: 'Calendário',   endpoint: '/api/calendar'     },
   { table: 'c21_assets',        label: 'Imóveis',      endpoint: '/api/assets'       },
   { table: 'c21_owners',        label: 'Vendedores',   endpoint: '/api/owners'       },
   { table: 'c21_buyers',        label: 'Compradores',  endpoint: '/api/buyers'       },

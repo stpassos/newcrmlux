@@ -72,6 +72,19 @@ async function runMigrations() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_leads_workspace ON c21_leads(workspace_id)`);
     console.log('[migrations] c21_leads OK');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS c21_calendar (
+        id SERIAL PRIMARY KEY,
+        external_id TEXT UNIQUE NOT NULL,
+        workspace_id TEXT,
+        data JSONB NOT NULL DEFAULT '{}',
+        imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_calendar_workspace ON c21_calendar(workspace_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_calendar_type ON c21_calendar USING gin((data->'type') jsonb_path_ops) `);
+    console.log('[migrations] c21_calendar OK');
   } catch (err) {
     console.error('[migrations] Error:', err.message);
   }

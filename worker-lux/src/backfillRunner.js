@@ -308,6 +308,138 @@ async function enrichRecordsWithDetail(entity, records, email, password, extraCo
 
 // ─── Core: Run Backfill ──────────────────────────────────
 
+// ─── Calendar: Monthly Iteration ────────────────────────
+
+const CALENDAR_FILTERS = "visit,contract,sign,cmi,contact_birthday";
+
+function calendarMonths(fromDateStr, toDateStr) {
+  const months = [];
+  const from = new Date(fromDateStr || "2020-01-01");
+  const to   = new Date(toDateStr || new Date());
+  let cur = new Date(from.getFullYear(), from.getMonth(), 1);
+  while (cur <= to) {
+    const y  = cur.getFullYear();
+    const m  = String(cur.getMonth() + 1).padStart(2, "0");
+    const lastDay = new Date(y, cur.getMonth() + 1, 0).getDate();
+    months.push({
+      startDate: `${y}-${m}-01`,
+      endDate:   `${y}-${m}-${String(lastDay).padStart(2, "0")}`,
+      label:     `${y}-${m}`,
+    });
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return months;
+}
+
+function flattenCalendarResponse(bodyText, monthLabel) {
+  let parsed;
+  try { parsed = JSON.parse(bodyText); } catch { return []; }
+  const buckets = [
+    ...(parsed.visits           || []),
+    ...(parsed.cpcvs            || []),
+    ...(parsed.signs            || []),
+    ...(parsed.cmis             || []),
+    ...(parsed.tasks            || []),
+    ...(parsed.contact_birthdays || []),
+  ];
+  return buckets.map((rec) => {
+    // For contact_birthday, id is the contact UUID (same contact same record across months).
+    // Build a stable external_id so birthdays deduplicate across months.
+    const stableId = rec.type === "contact_birthday"
+      ? `contact_birthday_${rec.id}`
+      : rec.id;
+    return { ...rec, id: stableId, _calendar_month: monthLabel };
+  });
+}
+
+async function runCalendarBackfill(ctx, params, workspaceCookiePair, entityIdx) {
+  const {
+    jobId, workspaceId, workspaceExternalId, workspaceName, workspaceRowId,
+    email, password, callbackUrl, callbackApiKey, calendar_from,
+  } = params;
+
+  // Go 1 month into the future to capture upcoming visits/events
+  const futureDate = new Date();
+  futureDate.setMonth(futureDate.getMonth() + 1);
+  const months = calendarMonths(calendar_from || "2020-01-01", futureDate.toISOString());
+
+  let entityFetched = 0;
+  let entityStored  = 0;
+  let entityFailed  = false;
+  let wasPaused     = false;
+
+  logger.info(`[backfill:${jobId}] calendar: ${months.length} months to fetch (${months[0]?.label} → ${months[months.length - 1]?.label})`);
+
+  for (let mi = 0; mi < months.length; mi++) {
+    if (activeBackfill && activeBackfill.pauseRequested) {
+      wasPaused = true;
+      break;
+    }
+
+    const { startDate, endDate, label } = months[mi];
+    const url = `https://21online.app/api/calendar?workspaceID=${workspaceId}&filters=${CALENDAR_FILTERS}&startDate=${startDate}&endDate=${endDate}&calendar_view=month`;
+
+    logger.info(`[backfill:${jobId}] calendar month ${label}`);
+
+    let result;
+    try {
+      result = await fetch21onlinePage({ email, password, url, method: "GET", extraCookies: workspaceCookiePair });
+    } catch (err) {
+      logger.error(`[backfill:${jobId}] calendar fetch error ${label}: ${err.message}`);
+      entityFailed = true;
+      break;
+    }
+
+    if (!result.success) {
+      logger.error(`[backfill:${jobId}] calendar fetch failed ${label}: status ${result.status}`);
+      entityFailed = true;
+      break;
+    }
+
+    const records = flattenCalendarResponse(result.body, label);
+    entityFetched += records.length;
+
+    for (let i = 0; i < records.length; i += BACKFILL_CONFIG.RECORDS_BATCH_SIZE) {
+      const batch = records.slice(i, i + BACKFILL_CONFIG.RECORDS_BATCH_SIZE);
+      const storeResult = await callbackRecords(ctx, "calendar", batch);
+      if (storeResult?.stored) entityStored += storeResult.stored;
+      if (i + BACKFILL_CONFIG.RECORDS_BATCH_SIZE < records.length) {
+        await sleep(BACKFILL_CONFIG.DELAY_AFTER_STORE_CALLBACK_MS);
+      }
+    }
+
+    const progressPct = Math.round(((entityIdx + (mi + 1) / months.length)) / (params.entities?.length || 1) * 100);
+    const progressCb = await sendCallback(callbackUrl, callbackApiKey, {
+      action: "worker_callback", event: "progress",
+      job_id: jobId, workspace_row_id: workspaceRowId, entity: "calendar",
+      data: {
+        page: mi + 1,
+        records_in_page: records.length,
+        records_fetched: entityFetched,
+        records_stored: entityStored,
+        progress_pct: Math.min(progressPct, 99),
+        calendar_month: label,
+        workspace_id: workspaceId,
+        workspace_external_id: workspaceExternalId,
+        workspace_name: workspaceName,
+      },
+    });
+
+    if (shouldPause(ctx, progressCb)) {
+      wasPaused = true;
+      break;
+    }
+
+    if (mi < months.length - 1) {
+      await sleep(BACKFILL_CONFIG.DELAY_BETWEEN_PAGES_MS);
+    }
+  }
+
+  return { entityFetched, entityStored, entityFailed, wasPaused };
+}
+
+// ─── Core: Run Backfill ──────────────────────────────────
+
 async function runBackfill(params) {
   const {
     jobId,
@@ -323,6 +455,7 @@ async function runBackfill(params) {
     callbackApiKey,
     checkpoint,
     leads_since,
+    calendar_from,
   } = params;
 
   const ctx = {
@@ -453,6 +586,35 @@ async function runBackfill(params) {
       totalFailed++;
       continue;
     }
+
+    // ── Calendar: special monthly iteration ─────────────
+    if (entity === "calendar") {
+      const calResult = await runCalendarBackfill(ctx, {
+        ...params, entities, calendar_from,
+      }, workspaceCookiePair, entityIdx);
+
+      totalFetched += calResult.entityFetched;
+      totalStored  += calResult.entityStored;
+
+      if (calResult.wasPaused) { wasPaused = true; break; }
+      if (calResult.entityFailed) { totalFailed++; break; }
+
+      completedEntities++;
+      await sendCallback(callbackUrl, callbackApiKey, {
+        action: "worker_callback", event: "entity_done",
+        job_id: jobId, workspace_row_id: workspaceRowId, entity,
+        data: {
+          total_fetched: calResult.entityFetched,
+          total_stored:  calResult.entityStored,
+          workspace_id: workspaceId,
+          workspace_external_id: workspaceExternalId,
+          workspace_name: workspaceName,
+        },
+      });
+      logger.info(`[backfill:${jobId}] calendar done: ${calResult.entityFetched} fetched, ${calResult.entityStored} stored`);
+      continue; // skip standard page loop
+    }
+    // ────────────────────────────────────────────────────
 
     let page = startPage;
     let hasMore = true;
@@ -794,6 +956,7 @@ function startBackfill(params) {
     callbackApiKey: params.callback_api_key,
     checkpoint: params.checkpoint || null,
     leads_since: params.leads_since || null,
+    calendar_from: params.calendar_from || null,
   }).catch((err) => {
     logger.error(`[backfill:${params.job_id}] Unhandled error: ${err.message}`);
 

@@ -12,6 +12,7 @@ const ENTITY_TABLE = {
   users:        'c21_agents',
   leads:        'c21_leads',
   contacts:     'c21_contacts',
+  calendar:     'c21_calendar',
   assets:       'c21_assets',
   owners:       'c21_owners',
   buyers:       'c21_buyers',

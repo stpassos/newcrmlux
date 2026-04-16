@@ -21,6 +21,7 @@ const PATH_TO_ENTITY = {
   '/api/assets':       'assets',
   '/api/contacts':     'contacts',
   '/api/leads':        'leads',
+  '/api/calendar':     'calendar',
   '/api/proposals':    'proposals',
   '/api/tasks':        'tasks',
   '/api/calendar':     'calendar',
@@ -173,6 +174,8 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
           entities:              [entity],
           callback_url:          `${API_BASE_URL}/api/pipelines/callback`,
           callback_api_key:      CALLBACK_API_KEY,
+          ...(entity === 'calendar' && { calendar_from: ep.backfill_from_date ? ep.backfill_from_date.toISOString().slice(0, 10) : '2020-01-01' }),
+          ...(entity === 'leads'    && ep.backfill_from_date && { leads_since: ep.backfill_from_date.toISOString().slice(0, 10) }),
         }),
         signal: AbortSignal.timeout(15000),
       });
