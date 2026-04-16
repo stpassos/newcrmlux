@@ -327,4 +327,30 @@ function isRunning(pipelineId) {
   return activeLoops.has(pipelineId);
 }
 
-module.exports = { startPipeline, stopPipeline, isRunning };
+// ─── Auto-resume on API startup ───────────────────────────────────────────────
+// If the API restarts mid-execution, any stale 'running' endpoint gets reset to
+// 'idle' and the pipeline loop resumes from the beginning of its next cycle.
+
+async function resumeOnStartup() {
+  try {
+    // Fix any endpoints stuck in 'running' state from a previous API session
+    await pool.query(
+      `UPDATE c21_pipeline_endpoints
+       SET status = 'idle', updated_at = now()
+       WHERE status = 'running'`
+    );
+
+    // Resume pipeline loops for all pipelines still marked as running
+    const result = await pool.query(
+      `SELECT id FROM c21_pipelines WHERE status = 'running'`
+    );
+    for (const row of result.rows) {
+      console.log(`[pipeline:${row.id}] Auto-resuming after API restart`);
+      startPipeline(row.id);
+    }
+  } catch (err) {
+    console.error(`[pipelineExecutor] resumeOnStartup error: ${err.message}`);
+  }
+}
+
+module.exports = { startPipeline, stopPipeline, isRunning, resumeOnStartup };

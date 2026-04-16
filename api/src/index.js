@@ -14,6 +14,7 @@ const endpointsRoutes = require('./routes/endpoints');
 const credentialsRoutes = require('./routes/credentials');
 const pipelinesRoutes = require('./routes/pipelines');
 const serverMonitorRoutes = require('./routes/server-monitor');
+const { resumeOnStartup } = require('./pipelineExecutor');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -44,4 +45,6 @@ app.use(errorHandler);
 
 app.listen(PORT, () => {
   console.log(`NEWCRMLUX API running on port ${PORT}`);
+  // Resume any pipelines that were running before the last restart
+  resumeOnStartup().catch(() => {});
 });
