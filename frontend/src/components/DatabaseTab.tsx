@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { api } from '@/lib/api'
 import {
-  Database, RefreshCw, Loader2, ChevronLeft, ChevronRight, Search, X,
+  Database, RefreshCw, Loader2, ChevronLeft, ChevronRight, Search, X, Columns3,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -48,18 +48,111 @@ function cellValue(val: unknown, type: string): string {
   return s.length > 80 ? s.slice(0, 80) + '…' : s
 }
 
-// Columns we prefer to show first in the data viewer
-const PRIORITY_COLS = ['id', 'name', 'email', 'reference', 'status', 'created_at', 'updated_at', 'imported_at']
+// Extract all field names from JSONB data column (first N rows)
+function extractDataFields(rows: Record<string, unknown>[]): string[] {
+  const keys = new Set<string>()
+  for (const row of rows.slice(0, 20)) {
+    const d = row['data']
+    if (d && typeof d === 'object' && !Array.isArray(d)) {
+      Object.keys(d as Record<string, unknown>).forEach(k => keys.add(k))
+    }
+  }
+  return Array.from(keys)
+}
 
-function sortColumns(cols: ColumnMeta[]): ColumnMeta[] {
-  return [...cols].sort((a, b) => {
-    const ai = PRIORITY_COLS.indexOf(a.name)
-    const bi = PRIORITY_COLS.indexOf(b.name)
-    if (ai !== -1 && bi !== -1) return ai - bi
-    if (ai !== -1) return -1
-    if (bi !== -1) return 1
-    return 0
-  })
+// Virtual column: reads from row.data[field] if field starts with "data."
+function getVirtualValue(row: Record<string, unknown>, field: string): unknown {
+  if (field.startsWith('data.')) {
+    const key = field.slice(5)
+    const d = row['data']
+    if (d && typeof d === 'object' && !Array.isArray(d)) {
+      return (d as Record<string, unknown>)[key]
+    }
+    return undefined
+  }
+  return row[field]
+}
+
+// Column picker popover
+function ColumnPicker({
+  allFields,
+  selected,
+  onChange,
+}: {
+  allFields: string[]
+  selected: Set<string>
+  onChange: (s: Set<string>) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  function toggle(field: string) {
+    const next = new Set(selected)
+    if (next.has(field)) { next.delete(field) } else { next.add(field) }
+    onChange(next)
+  }
+
+  function selectAll() { onChange(new Set(allFields)) }
+  function clearAll()  { onChange(new Set<string>()) }
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 text-xs border rounded-lg transition-colors ${
+          open ? 'border-brand text-brand' : 'border-zinc-700 text-zinc-400 hover:text-zinc-200'
+        }`}
+      >
+        <Columns3 className="w-3.5 h-3.5" />
+        Campos <span className="text-zinc-500">({selected.size})</span>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-50 w-64 bg-zinc-900 border border-zinc-700 rounded-xl shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-zinc-800">
+            <span className="text-xs text-zinc-400 font-medium">Campos visíveis</span>
+            <div className="flex gap-2">
+              <button onClick={selectAll} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">todos</button>
+              <span className="text-zinc-700">·</span>
+              <button onClick={clearAll} className="text-xs text-zinc-500 hover:text-zinc-300 transition-colors">nenhum</button>
+            </div>
+          </div>
+          <div className="max-h-72 overflow-y-auto p-1">
+            {allFields.map(field => {
+              const label = field.startsWith('data.') ? field.slice(5) : field
+              const isDataField = field.startsWith('data.')
+              return (
+                <label
+                  key={field}
+                  className="flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-zinc-800 cursor-pointer group"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(field)}
+                    onChange={() => toggle(field)}
+                    className="accent-brand w-3.5 h-3.5 shrink-0"
+                  />
+                  <span className="text-xs text-zinc-300 truncate flex-1">{label}</span>
+                  {isDataField && (
+                    <span className="text-zinc-600 text-xs shrink-0">json</span>
+                  )}
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Stats table ──────────────────────────────────────────────────────────────
@@ -150,12 +243,17 @@ function StatsTable({
 
 // ─── Record viewer ────────────────────────────────────────────────────────────
 
+// Default fields to show on first load (subset of common data keys)
+const DEFAULT_DATA_FIELDS = ['id', 'name', 'email', 'status', 'phone', 'reference', 'title']
+
 function RecordViewer({ tableName, label }: { tableName: string; label: string }) {
-  const [data, setData]       = useState<RecordsResult | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [page, setPage]       = useState(1)
-  const [search, setSearch]   = useState('')
+  const [data, setData]             = useState<RecordsResult | null>(null)
+  const [loading, setLoading]       = useState(false)
+  const [page, setPage]             = useState(1)
+  const [search, setSearch]         = useState('')
   const [searchInput, setSearchInput] = useState('')
+  const [selectedFields, setSelectedFields] = useState<Set<string>>(new Set())
+  const [allFields, setAllFields]   = useState<string[]>([])
   const limit = 50
 
   const load = useCallback(async (p: number, q: string) => {
@@ -165,6 +263,24 @@ function RecordViewer({ tableName, label }: { tableName: string; label: string }
       if (q) params.set('search', q)
       const res = await api.get<RecordsResult>(`/api/database/records/${tableName}?${params}`)
       setData(res)
+
+      // Build field list from JSONB data keys + non-data table columns
+      const tableFields = res.columns
+        .filter(c => c.name !== 'data')
+        .map(c => c.name)
+      const dataKeys = extractDataFields(res.rows).map(k => `data.${k}`)
+      const fields = [...tableFields, ...dataKeys]
+      setAllFields(fields)
+
+      // On first load: auto-select default fields (if present) or first 8
+      setSelectedFields((prev: Set<string>) => {
+        if (prev.size > 0) return prev  // keep existing selection on page change
+        const defaults = fields.filter((f: string) => {
+          const key = f.startsWith('data.') ? f.slice(5) : f
+          return DEFAULT_DATA_FIELDS.includes(key)
+        })
+        return new Set(defaults.length > 0 ? defaults : fields.slice(0, 8))
+      })
     } catch {
       setData(null)
     } finally {
@@ -176,6 +292,8 @@ function RecordViewer({ tableName, label }: { tableName: string; label: string }
     setPage(1)
     setSearch('')
     setSearchInput('')
+    setSelectedFields(new Set())  // reset on table change
+    setAllFields([])
   }, [tableName])
 
   useEffect(() => {
@@ -195,7 +313,9 @@ function RecordViewer({ tableName, label }: { tableName: string; label: string }
   }
 
   const totalPages = data ? Math.ceil(data.total / limit) : 1
-  const visibleCols = data ? sortColumns(data.columns).slice(0, 12) : []
+
+  // Ordered visible fields (preserve allFields order, filter to selected)
+  const visibleFields = allFields.filter(f => selectedFields.has(f))
 
   return (
     <div className="space-y-4">
@@ -210,34 +330,45 @@ function RecordViewer({ tableName, label }: { tableName: string; label: string }
           )}
         </div>
 
-        {/* Search */}
-        <form onSubmit={handleSearch} className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
-            <input
-              type="text"
-              value={searchInput}
-              onChange={e => setSearchInput(e.target.value)}
-              placeholder="Pesquisar…"
-              className="pl-8 pr-8 py-1.5 text-sm bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 w-52"
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Column picker */}
+          {allFields.length > 0 && (
+            <ColumnPicker
+              allFields={allFields}
+              selected={selectedFields}
+              onChange={setSelectedFields}
             />
-            {searchInput && (
-              <button
-                type="button"
-                onClick={clearSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-          <button
-            type="submit"
-            className="px-3 py-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors"
-          >
-            Filtrar
-          </button>
-        </form>
+          )}
+
+          {/* Search */}
+          <form onSubmit={handleSearch} className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-zinc-500" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e: { target: HTMLInputElement }) => setSearchInput(e.target.value)}
+                placeholder="Pesquisar…"
+                className="pl-8 pr-8 py-1.5 text-sm bg-zinc-900 border border-zinc-700 rounded-lg text-zinc-200 placeholder-zinc-600 focus:outline-none focus:border-zinc-500 w-52"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            <button
+              type="submit"
+              className="px-3 py-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-zinc-200 rounded-lg transition-colors"
+            >
+              Filtrar
+            </button>
+          </form>
+        </div>
       </div>
 
       {/* Table */}
@@ -250,16 +381,23 @@ function RecordViewer({ tableName, label }: { tableName: string; label: string }
         <div className="text-center py-12 text-zinc-600 text-sm">
           {search ? 'Nenhum resultado para a pesquisa.' : 'Tabela vazia.'}
         </div>
+      ) : visibleFields.length === 0 ? (
+        <div className="text-center py-12 text-zinc-600 text-sm">
+          Nenhum campo selecionado. Use <span className="text-zinc-400">Campos</span> para escolher o que visualizar.
+        </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border border-zinc-800">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-zinc-800 text-zinc-500 uppercase tracking-wider">
-                {visibleCols.map(col => (
-                  <th key={col.name} className="text-left px-3 py-2.5 whitespace-nowrap font-medium">
-                    {col.name}
-                  </th>
-                ))}
+                {visibleFields.map((field: string) => {
+                  const label = field.startsWith('data.') ? field.slice(5) : field
+                  return (
+                    <th key={field} className="text-left px-3 py-2.5 whitespace-nowrap font-medium">
+                      {label}
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -268,15 +406,19 @@ function RecordViewer({ tableName, label }: { tableName: string; label: string }
                   key={i}
                   className="border-b border-zinc-800/40 hover:bg-zinc-800/30 transition-colors"
                 >
-                  {visibleCols.map(col => (
-                    <td
-                      key={col.name}
-                      className="px-3 py-2 text-zinc-300 whitespace-nowrap max-w-[220px] overflow-hidden text-ellipsis"
-                      title={String(row[col.name] ?? '')}
-                    >
-                      {cellValue(row[col.name], col.type)}
-                    </td>
-                  ))}
+                  {visibleFields.map((field: string) => {
+                    const val = getVirtualValue(row, field)
+                    const colType = data.columns.find((c: ColumnMeta) => c.name === (field.startsWith('data.') ? 'data' : field))?.type ?? 'text'
+                    return (
+                      <td
+                        key={field}
+                        className="px-3 py-2 text-zinc-300 whitespace-nowrap max-w-[220px] overflow-hidden text-ellipsis"
+                        title={val != null ? String(val) : ''}
+                      >
+                        {cellValue(val, colType)}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>
