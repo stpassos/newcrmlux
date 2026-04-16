@@ -527,6 +527,10 @@ export default function PipelineTab({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   const dragOverId = useRef<string | null>(null)
 
+  // stable ref to onPipelineUpdated — avoids re-creating loadPipeline on every parent render
+  const onPipelineUpdatedRef = useRef(onPipelineUpdated)
+  useEffect(() => { onPipelineUpdatedRef.current = onPipelineUpdated }, [onPipelineUpdated])
+
   // load pipeline if not provided
   const loadPipeline = useCallback(async () => {
     try {
@@ -536,10 +540,10 @@ export default function PipelineTab({
         setPipeline(p)
         setIntervalMin(p.interval_min)
         setIntervalMax(p.interval_max)
-        onPipelineUpdated?.(p)
+        onPipelineUpdatedRef.current?.(p)
       }
     } catch { /* ignore */ }
-  }, [pipelineId, onPipelineUpdated])
+  }, [pipelineId])
 
   const loadEndpoints = useCallback(async () => {
     setLoadingEp(true)

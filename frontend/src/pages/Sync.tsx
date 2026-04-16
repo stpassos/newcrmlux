@@ -1179,9 +1179,9 @@ export default function Sync() {
     if (tab === tabId) setTab('workers')
   }
 
-  const handlePipelineUpdated = (p: Pipeline) => {
+  const handlePipelineUpdated = useCallback((p: Pipeline) => {
     setPipelines(prev => prev.map(x => x.id === p.id ? p : x))
-  }
+  }, [])
 
   return (
     <div className="p-8">
