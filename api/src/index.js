@@ -12,6 +12,7 @@ const connectionsRoutes = require('./routes/connections');
 const workersRoutes = require('./routes/workers');
 const endpointsRoutes = require('./routes/endpoints');
 const credentialsRoutes = require('./routes/credentials');
+const pipelinesRoutes = require('./routes/pipelines');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -35,6 +36,7 @@ app.use('/api/connections', connectionsRoutes);
 app.use('/api/workers', workersRoutes);
 app.use('/api/endpoints', endpointsRoutes);
 app.use('/api/credentials', credentialsRoutes);
+app.use('/api/pipelines', pipelinesRoutes);
 
 app.use(errorHandler);
 
