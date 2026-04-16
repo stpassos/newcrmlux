@@ -85,15 +85,7 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
     return;
   }
 
-  // Mark endpoint as running
-  await pool.query(
-    `UPDATE c21_pipeline_endpoints
-     SET status = 'running', last_run_at = now(), updated_at = now()
-     WHERE id = $1`,
-    [ep.id]
-  );
-
-  // Determine workspaces
+  // Determine workspaces first (before touching endpoint status)
   let workspaces = [];
   if (ep.workspace_id) {
     workspaces = [{ external_id: ep.workspace_id, name: ep.workspace_name || '' }];
@@ -159,6 +151,11 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
            WHERE id = $2`,
           [msg, jobId]
         );
+        // Mark endpoint as error immediately (not running — worker never accepted it)
+        await pool.query(
+          `UPDATE c21_pipeline_endpoints SET status = 'error', updated_at = now() WHERE id = $1`,
+          [ep.id]
+        );
         endpointStatus = 'error';
         // Still honour the interval even on rejection (prevents rapid-fire when worker is busy)
         const rejectWaitMs = randomBetween(intervalMin, intervalMax);
@@ -166,6 +163,14 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
         await sleep(rejectWaitMs);
         continue;
       }
+
+      // Worker accepted — now mark endpoint as running
+      await pool.query(
+        `UPDATE c21_pipeline_endpoints
+         SET status = 'running', last_run_at = now(), updated_at = now()
+         WHERE id = $1`,
+        [ep.id]
+      );
 
       // Poll DB for job completion (worker updates via callback endpoint)
       const finalStatus = await pollJobUntilDone(jobId, 15 * 60 * 1000);
