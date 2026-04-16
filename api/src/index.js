@@ -60,6 +60,18 @@ async function runMigrations() {
     `);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_user_contacts_workspace ON c21_user_contacts(workspace_id)`);
     console.log('[migrations] c21_user_contacts OK');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS c21_leads (
+        id SERIAL PRIMARY KEY,
+        external_id TEXT UNIQUE NOT NULL,
+        workspace_id TEXT,
+        data JSONB NOT NULL DEFAULT '{}',
+        imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_leads_workspace ON c21_leads(workspace_id)`);
+    console.log('[migrations] c21_leads OK');
   } catch (err) {
     console.error('[migrations] Error:', err.message);
   }

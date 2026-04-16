@@ -15,8 +15,8 @@ const router = express.Router();
 // Allowed tables (whitelist — prevents SQL injection via table name param)
 const TABLE_META = [
   { table: 'c21_agents',        label: 'Agentes',      endpoint: '/api/users'        },
-  { table: 'c21_contacts',      label: 'Leads',        endpoint: '/api/leads'        },
-  { table: 'c21_user_contacts', label: 'Contactos',    endpoint: '/api/contacts'     },
+  { table: 'c21_contacts',      label: 'Contactos',    endpoint: '/api/contacts'     },
+  { table: 'c21_leads',         label: 'Leads',        endpoint: '/api/leads'        },
   { table: 'c21_assets',        label: 'Imóveis',      endpoint: '/api/assets'       },
   { table: 'c21_owners',        label: 'Vendedores',   endpoint: '/api/owners'       },
   { table: 'c21_buyers',        label: 'Compradores',  endpoint: '/api/buyers'       },
