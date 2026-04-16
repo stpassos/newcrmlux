@@ -11,6 +11,7 @@ const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
 const ENTITY_TABLE = {
   users:        'c21_agents',
   leads:        'c21_contacts',
+  contacts:     'c21_user_contacts',
   assets:       'c21_assets',
   owners:       'c21_owners',
   buyers:       'c21_buyers',

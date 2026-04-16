@@ -16,6 +16,7 @@ const pipelinesRoutes = require('./routes/pipelines');
 const serverMonitorRoutes = require('./routes/server-monitor');
 const databaseRoutes      = require('./routes/database');
 const { resumeOnStartup } = require('./pipelineExecutor');
+const pool = require('./db/pool');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,8 +46,27 @@ app.use('/api/database',      databaseRoutes);
 
 app.use(errorHandler);
 
+async function runMigrations() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS c21_user_contacts (
+        id SERIAL PRIMARY KEY,
+        external_id TEXT UNIQUE NOT NULL,
+        workspace_id TEXT,
+        data JSONB NOT NULL DEFAULT '{}',
+        imported_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_user_contacts_workspace ON c21_user_contacts(workspace_id)`);
+    console.log('[migrations] c21_user_contacts OK');
+  } catch (err) {
+    console.error('[migrations] Error:', err.message);
+  }
+}
+
 app.listen(PORT, () => {
   console.log(`NEWCRMLUX API running on port ${PORT}`);
-  // Resume any pipelines that were running before the last restart
+  runMigrations().catch(() => {});
   resumeOnStartup().catch(() => {});
 });

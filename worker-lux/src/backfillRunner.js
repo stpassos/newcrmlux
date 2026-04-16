@@ -30,6 +30,7 @@ const ENTITY_API_PATH = {
   users: "/api/users",
   assets: "/api/assets",
   leads: "/api/leads",
+  contacts: "/api/contacts",
   calendar: "/api/calendar",
   tasks: "/api/tasks",
   contracts: "/api/contracts",
