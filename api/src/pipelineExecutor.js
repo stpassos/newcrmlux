@@ -73,6 +73,39 @@ async function fetchWorkspacesFromWorker(email, password) {
 
 // ─── Single endpoint execution ────────────────────────────────────────────────
 
+async function clearWorkerStaleLock(pipelineId, endpointName) {
+  try {
+    const statusRes = await fetch(`${WORKER_URL}/api/21online/backfill-status`, {
+      headers: { 'x-internal-api-key': WORKER_KEY },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!statusRes.ok) return;
+    const status = await statusRes.json().catch(() => null);
+    if (!status || !status.active || !status.jobId) return;
+
+    // Worker has an active lock — check if that job is still 'running' in our DB
+    const dbRow = await pool.query(
+      'SELECT status FROM c21_pipeline_jobs WHERE id = $1',
+      [status.jobId]
+    );
+    const dbStatus = dbRow.rows[0]?.status;
+
+    if (dbStatus !== 'running') {
+      // Stale lock: DB says the job is done/error but worker still holds it
+      console.warn(`[pipeline:${pipelineId}] ${endpointName}: worker has stale lock on job ${status.jobId} (DB: ${dbStatus || 'not found'}) — force-cancelling`);
+      await fetch(`${WORKER_URL}/api/21online/backfill-cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-api-key': WORKER_KEY },
+        body: JSON.stringify({ reason: `Stale lock: DB status=${dbStatus || 'not found'}, detected by pipelineExecutor` }),
+        signal: AbortSignal.timeout(5000),
+      }).catch(err => console.warn(`[pipeline:${pipelineId}] Could not cancel stale lock: ${err.message}`));
+    }
+  } catch (err) {
+    // Non-blocking — just log and continue
+    console.warn(`[pipeline:${pipelineId}] clearWorkerStaleLock error: ${err.message}`);
+  }
+}
+
 async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
   const entity = PATH_TO_ENTITY[ep.endpoint_path];
   if (!entity) {
@@ -84,6 +117,9 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
     console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: no credential configured — skip`);
     return;
   }
+
+  // Clear any stale in-memory lock on the worker before submitting
+  await clearWorkerStaleLock(pipelineId, ep.endpoint_name);
 
   // Determine workspaces first (before touching endpoint status)
   let workspaces = [];
@@ -363,6 +399,25 @@ async function resumeOnStartup() {
     );
     if (staleJobs.rowCount > 0) {
       console.log(`[pipelineExecutor] Cleared ${staleJobs.rowCount} stale running job(s) on startup`);
+    }
+
+    // Force-cancel any stale in-memory lock on the worker
+    // (worker may still be executing a job that the API has now marked as error)
+    try {
+      const cancelRes = await fetch(`${WORKER_URL}/api/21online/backfill-cancel`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-internal-api-key': WORKER_KEY },
+        body: JSON.stringify({ reason: 'API restarted — clearing stale lock' }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (cancelRes.ok) {
+        const data = await cancelRes.json().catch(() => ({}));
+        if (data.success) {
+          console.log(`[pipelineExecutor] Cleared stale worker lock on startup (cancelled job: ${data.cancelled_job_id})`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[pipelineExecutor] Could not clear worker lock on startup: ${err.message}`);
     }
 
     // Resume pipeline loops for all pipelines still marked as running
