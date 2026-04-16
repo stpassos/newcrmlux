@@ -294,16 +294,39 @@ function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: Wor
                     <p className="text-zinc-600 text-xs font-mono">{w.url}</p>
                   </div>
                 </div>
-                <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
-                  w.status === 'online'
-                    ? 'bg-green-500/10 text-green-400'
-                    : 'bg-red-500/10 text-red-400'
-                }`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${
-                    w.status === 'online' ? 'bg-green-400' : 'bg-red-400'
-                  } ${w.status === 'online' ? 'animate-pulse' : ''}`} />
-                  {statusLabel(w.status)}
-                </span>
+                <div className="flex items-center gap-2">
+                  {/* Pipeline status badge */}
+                  {(() => {
+                    const pl = pipelines.find(p => p.worker_name === w.name)
+                    if (!pl) return null
+                    const cfg: Record<string, { label: string; cls: string }> = {
+                      running:        { label: 'Running',  cls: 'bg-green-500/10 text-green-400' },
+                      ready:          { label: 'Ready',    cls: 'bg-blue-500/10 text-blue-400' },
+                      stopped:        { label: 'Stopped',  cls: 'bg-yellow-500/10 text-yellow-400' },
+                      error:          { label: 'Error',    cls: 'bg-red-500/10 text-red-400' },
+                      not_configured: { label: 'Blocked',  cls: 'bg-zinc-700/60 text-zinc-500' },
+                    }
+                    const c = cfg[pl.status] ?? cfg.not_configured
+                    return (
+                      <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${c.cls}`}>
+                        {pl.status === 'running' && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}
+                        {c.label}
+                      </span>
+                    )
+                  })()}
+
+                  {/* Worker online/offline badge */}
+                  <span className={`flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
+                    w.status === 'online'
+                      ? 'bg-green-500/10 text-green-400'
+                      : 'bg-red-500/10 text-red-400'
+                  }`}>
+                    <span className={`w-1.5 h-1.5 rounded-full ${
+                      w.status === 'online' ? 'bg-green-400' : 'bg-red-400'
+                    } ${w.status === 'online' ? 'animate-pulse' : ''}`} />
+                    {statusLabel(w.status)}
+                  </span>
+                </div>
               </div>
 
               {/* Metrics */}
