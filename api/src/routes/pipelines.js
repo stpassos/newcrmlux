@@ -1,8 +1,112 @@
 const express = require('express');
 const pool = require('../db/pool');
 const { verifyToken, requireRole } = require('../middleware/auth');
+const executor = require('../pipelineExecutor');
 
 const router = express.Router();
+
+const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
+
+// ─── POST /api/pipelines/callback — called by worker (no JWT, key-protected) ─
+router.post('/callback', async (req, res) => {
+  // Verify internal API key
+  const authHeader = req.headers['authorization'] || '';
+  const apiKey     = req.headers['apikey'] || '';
+  const token      = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : authHeader;
+  if (CALLBACK_API_KEY && token !== CALLBACK_API_KEY && apiKey !== CALLBACK_API_KEY) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const { action, event, job_id, data = {} } = req.body || {};
+  if (action !== 'worker_callback') return res.status(400).json({ error: 'Invalid action' });
+
+  try {
+    if (event === 'check_running_jobs') {
+      // Return whether another job is running for this workspace
+      const wsId = data.workspace_id || data.workspace_external_id || null;
+      const result = await pool.query(
+        `SELECT id FROM c21_pipeline_jobs
+         WHERE workspace_id = $1 AND status = 'running' AND id != $2
+         LIMIT 1`,
+        [wsId, job_id]
+      );
+      return res.json({
+        has_running_jobs: result.rows.length > 0,
+        running_job_id:   result.rows[0]?.id || null,
+      });
+    }
+
+    if (event === 'records') {
+      // Acknowledge records; update fetched count optimistically
+      const records = Array.isArray(data.records) ? data.records : [];
+      if (records.length > 0 && job_id) {
+        await pool.query(
+          `UPDATE c21_pipeline_jobs
+           SET fetched = COALESCE(fetched, 0) + $1, updated_at = now()
+           WHERE id = $2`,
+          [records.length, job_id]
+        ).catch(() => {});
+      }
+      return res.json({ stored: records.length });
+    }
+
+    if (event === 'progress' && job_id) {
+      await pool.query(
+        `UPDATE c21_pipeline_jobs
+         SET fetched   = COALESCE($1, fetched),
+             inserted  = COALESCE($2, inserted),
+             progress  = COALESCE($3, progress)
+         WHERE id = $4`,
+        [data.records_fetched || null, data.records_stored || null, data.progress_pct || null, job_id]
+      ).catch(() => {});
+      return res.json({ success: true });
+    }
+
+    if (event === 'completed' && job_id) {
+      await pool.query(
+        `UPDATE c21_pipeline_jobs
+         SET status      = 'done',
+             fetched     = COALESCE($1, fetched),
+             inserted    = COALESCE($2, inserted),
+             progress    = 100,
+             finished_at = now(),
+             duration_ms = $3
+         WHERE id = $4`,
+        [data.total_fetched || 0, data.total_stored || 0, data.duration_ms || null, job_id]
+      );
+      return res.json({ success: true });
+    }
+
+    if (event === 'failed' && job_id) {
+      await pool.query(
+        `UPDATE c21_pipeline_jobs
+         SET status      = 'error',
+             error_msg   = $1,
+             fetched     = COALESCE($2, fetched),
+             finished_at = now()
+         WHERE id = $3`,
+        [data.error || 'Worker reported failure', data.total_fetched || 0, job_id]
+      );
+      return res.json({ success: true });
+    }
+
+    if (event === 'paused' && job_id) {
+      await pool.query(
+        `UPDATE c21_pipeline_jobs
+         SET status = 'done', finished_at = now()
+         WHERE id = $1`,
+        [job_id]
+      );
+      return res.json({ success: true });
+    }
+
+    // Unknown event — just acknowledge
+    return res.json({ success: true });
+  } catch (err) {
+    console.error('[pipelines/callback] Error:', err.message);
+    return res.status(500).json({ error: 'Internal error' });
+  }
+});
 
 // Predefined endpoints inserted when a pipeline is created
 const PREDEFINED_ENDPOINTS = [
@@ -112,6 +216,11 @@ router.patch('/:id', verifyToken, requireRole('admin'), async (req, res, next) =
       values
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Pipeline não encontrado' });
+
+    // Wire start/stop to executor
+    if (status === 'running')  executor.startPipeline(req.params.id);
+    if (status === 'stopped')  executor.stopPipeline(req.params.id);
+
     res.json(result.rows[0]);
   } catch (err) {
     next(err);
