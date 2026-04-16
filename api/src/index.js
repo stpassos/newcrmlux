@@ -85,6 +85,10 @@ async function runMigrations() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_calendar_workspace ON c21_calendar(workspace_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_calendar_type ON c21_calendar USING gin((data->'type') jsonb_path_ops) `);
     console.log('[migrations] c21_calendar OK');
+    // Add runs_per_day and incremental_months columns if not present
+    await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD COLUMN IF NOT EXISTS runs_per_day INT DEFAULT NULL`);
+    await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD COLUMN IF NOT EXISTS incremental_months INT DEFAULT 14`);
+    console.log('[migrations] c21_pipeline_endpoints columns OK');
   } catch (err) {
     console.error('[migrations] Error:', err.message);
   }

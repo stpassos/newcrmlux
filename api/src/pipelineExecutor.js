@@ -174,8 +174,9 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
           entities:              [entity],
           callback_url:          `${API_BASE_URL}/api/pipelines/callback`,
           callback_api_key:      CALLBACK_API_KEY,
-          ...(entity === 'calendar' && { calendar_from: ep.backfill_from_date ? ep.backfill_from_date.toISOString().slice(0, 10) : '2020-01-01' }),
-          ...(entity === 'leads'    && ep.backfill_from_date && { leads_since: ep.backfill_from_date.toISOString().slice(0, 10) }),
+          backfill_mode:       ep._force_full ? 'full' : (ep.backfill_mode || 'full'),
+          incremental_months:  ep.incremental_months || 14,
+          ...(entity === 'leads' && ep.backfill_from_date && { leads_since: ep.backfill_from_date.toISOString().slice(0, 10) }),
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -320,6 +321,29 @@ async function runPipelineLoop(pipelineId) {
           }
         }
 
+        // Check time-of-day window
+        if (ep.active_from && ep.active_to) {
+          const now = new Date();
+          const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+          if (hhmm < ep.active_from.slice(0,5) || hhmm >= ep.active_to.slice(0,5)) {
+            console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (time ${hhmm} outside ${ep.active_from}-${ep.active_to})`);
+            continue;
+          }
+        }
+
+        // Check runs_per_day limit
+        if (ep.runs_per_day) {
+          const todayRuns = await pool.query(
+            `SELECT COUNT(*) AS cnt FROM c21_pipeline_jobs
+             WHERE endpoint_id = $1 AND started_at >= CURRENT_DATE AND status IN ('done','error')`,
+            [ep.id]
+          );
+          if (parseInt(todayRuns.rows[0].cnt, 10) >= ep.runs_per_day) {
+            console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (ran ${todayRuns.rows[0].cnt}/${ep.runs_per_day} times today)`);
+            continue;
+          }
+        }
+
         await runEndpoint(pipelineId, ep, pipeline.interval_min, pipeline.interval_max);
       }
 
@@ -378,6 +402,14 @@ function stopPipeline(pipelineId) {
 
 function isRunning(pipelineId) {
   return activeLoops.has(pipelineId);
+}
+
+// Runs a single endpoint immediately (manual backfill button), bypassing runs_per_day
+function runEndpointNow(pipelineId, ep, opts = {}) {
+  const epWithFlag = { ...ep, _force_full: opts.force_full || false };
+  runEndpoint(pipelineId, epWithFlag, 5000, 10000).catch(err => {
+    console.error(`[pipeline:${pipelineId}] runEndpointNow error: ${err.message}`);
+  });
 }
 
 // ─── Auto-resume on API startup ───────────────────────────────────────────────

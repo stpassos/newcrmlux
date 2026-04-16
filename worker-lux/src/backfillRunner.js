@@ -355,14 +355,23 @@ function flattenCalendarResponse(bodyText, monthLabel) {
 async function runCalendarBackfill(ctx, params, workspaceCookiePair, entityIdx) {
   const {
     jobId, workspaceId, workspaceExternalId, workspaceName, workspaceRowId,
-    email, password, callbackUrl, callbackApiKey, calendar_from,
+    email, password, callbackUrl, callbackApiKey,
+    backfill_mode, incremental_months,
   } = params;
 
-  // 14 months back from today, 14 months forward
-  const fromDate = new Date();
-  fromDate.setMonth(fromDate.getMonth() - 14);
-  const toDate = new Date();
-  toDate.setMonth(toDate.getMonth() + 14);
+  const nMonths = Math.max(1, parseInt(incremental_months) || 14);
+  const now = new Date();
+
+  let fromDate, toDate;
+  if (backfill_mode === 'incremental') {
+    // Incremental: current month only going forward nMonths
+    fromDate = new Date(now.getFullYear(), now.getMonth(), 1);
+    toDate = new Date(now.getFullYear(), now.getMonth() + nMonths, 1);
+  } else {
+    // Full: nMonths back (historical, run once) + nMonths forward
+    fromDate = new Date(now.getFullYear(), now.getMonth() - nMonths, 1);
+    toDate = new Date(now.getFullYear(), now.getMonth() + nMonths, 1);
+  }
   const months = calendarMonths(fromDate.toISOString(), toDate.toISOString());
 
   let entityFetched = 0;

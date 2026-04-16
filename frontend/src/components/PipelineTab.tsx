@@ -4,7 +4,7 @@ import {
   Play, Square, RefreshCw, Loader2, GripVertical,
   CheckCircle2, XCircle, Clock, AlertTriangle, Minus,
   ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Settings,
-  Database, History, Zap
+  Database, History, Zap, CalendarX, Timer, Ban, Download
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -37,8 +37,11 @@ interface PipelineEndpoint {
   active_from: string | null
   active_to: string | null
   active_days: number[]
-  backfill_mode: 'full' | 'from_date'
+  backfill_mode: 'full' | 'incremental' | 'from_date'
   backfill_from_date: string | null
+  incremental_months: number
+  runs_per_day: number | null
+  runs_today: number
   is_active: boolean
   status: 'idle' | 'running' | 'done' | 'error' | 'waiting'
   last_run_at: string | null
@@ -105,6 +108,29 @@ const EP_STATUS_CONFIG = {
   waiting: { label: 'Espera',  icon: <Clock className="w-3 h-3" />,         color: 'text-yellow-400' },
 }
 
+// ─── Schedule Status ─────────────────────────────────────────────────────────
+
+type SkipReason = 'runs_limit' | 'wrong_day' | 'wrong_time' | null
+
+function getSkipReason(ep: PipelineEndpoint): SkipReason {
+  const now = new Date()
+  const jsDay = now.getDay()
+  const isoDay = jsDay === 0 ? 7 : jsDay
+  if (ep.active_days?.length > 0 && !ep.active_days.includes(isoDay)) return 'wrong_day'
+  if (ep.active_from && ep.active_to) {
+    const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`
+    if (hhmm < ep.active_from.slice(0,5) || hhmm >= ep.active_to.slice(0,5)) return 'wrong_time'
+  }
+  if (ep.runs_per_day && ep.runs_today >= ep.runs_per_day) return 'runs_limit'
+  return null
+}
+
+const SKIP_CONFIG: Record<NonNullable<SkipReason>, { icon: JSX.Element; label: string; color: string }> = {
+  runs_limit:  { icon: <Ban className="w-3.5 h-3.5" />,      label: 'Limite diário atingido', color: 'text-orange-400' },
+  wrong_day:   { icon: <CalendarX className="w-3.5 h-3.5" />, label: 'Fora do dia configurado', color: 'text-zinc-500' },
+  wrong_time:  { icon: <Timer className="w-3.5 h-3.5" />,     label: 'Fora do horário configurado', color: 'text-zinc-500' },
+}
+
 // ─── Endpoint Card ────────────────────────────────────────────────────────────
 
 interface EndpointCardProps {
@@ -115,6 +141,7 @@ interface EndpointCardProps {
   credentials: Credential[]
   onSave: (id: string, data: Partial<PipelineEndpoint>) => Promise<void>
   onToggle: (id: string, is_active: boolean) => Promise<void>
+  onManualBackfill: (id: string) => Promise<void>
   // drag-and-drop
   draggingId: string | null
   onDragStart: (id: string) => void
@@ -124,11 +151,12 @@ interface EndpointCardProps {
 
 function EndpointCard({
   ep, index, isRunning, workspaces, credentials,
-  onSave, onToggle,
+  onSave, onToggle, onManualBackfill,
   draggingId, onDragStart, onDragOver, onDragEnd,
 }: EndpointCardProps) {
   const [expanded, setExpanded] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [backfilling, setBackfilling] = useState(false)
   const [draft, setDraft] = useState<Partial<PipelineEndpoint>>({})
 
   const isDragging = draggingId === ep.id
@@ -178,6 +206,18 @@ function EndpointCard({
           {EP_STATUS_CONFIG[ep.status].icon}
         </span>
 
+        {/* Skip reason icon */}
+        {(() => {
+          const reason = getSkipReason(ep)
+          if (!reason) return null
+          const cfg = SKIP_CONFIG[reason]
+          return (
+            <span className={cfg.color} title={cfg.label}>
+              {cfg.icon}
+            </span>
+          )
+        })()}
+
         {/* Name & path */}
         <div className="flex-1 min-w-0">
           <p className="text-white text-sm font-medium">{ep.endpoint_name}</p>
@@ -203,6 +243,21 @@ function EndpointCard({
           {ep.is_active
             ? <ToggleRight className="w-5 h-5 text-green-400" />
             : <ToggleLeft className="w-5 h-5 text-zinc-600" />}
+        </button>
+
+        {/* Manual backfill */}
+        <button
+          onClick={async () => {
+            setBackfilling(true)
+            try { await onManualBackfill(ep.id) } finally { setBackfilling(false) }
+          }}
+          disabled={backfilling}
+          title="Backfill Manual"
+          className="shrink-0 text-zinc-500 hover:text-brand disabled:opacity-40 transition-colors"
+        >
+          {backfilling
+            ? <Loader2 className="w-4 h-4 animate-spin" />
+            : <Download className="w-4 h-4" />}
         </button>
 
         {/* Expand */}
@@ -281,8 +336,9 @@ function EndpointCard({
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-zinc-400">Modo backfill</label>
               <div className="flex gap-2">
-                {(['full', 'from_date'] as const).map(mode => {
+                {(['full', 'incremental', 'from_date'] as const).map(mode => {
                   const current = draft.backfill_mode ?? ep.backfill_mode
+                  const labels = { full: 'Completo', incremental: 'Incremental', from_date: 'A partir de' }
                   return (
                     <button
                       key={mode}
@@ -293,7 +349,7 @@ function EndpointCard({
                           : 'border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800'
                       }`}
                     >
-                      {mode === 'full' ? 'Completo' : 'A partir de'}
+                      {labels[mode]}
                     </button>
                   )
                 })}
@@ -306,6 +362,34 @@ function EndpointCard({
                   className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand mt-2"
                 />
               )}
+            </div>
+
+            {/* Incremental months */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Meses incremental</label>
+              <input
+                type="number" min={1} max={60}
+                value={draft.incremental_months ?? ep.incremental_months ?? 14}
+                onChange={e => setDraft(d => ({ ...d, incremental_months: Number(e.target.value) }))}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+              />
+              <p className="text-zinc-600 text-xs">Número de meses à frente a importar no modo incremental</p>
+            </div>
+
+            {/* Runs per day */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Execuções por dia</label>
+              <input
+                type="number" min={1} max={100}
+                placeholder="Ilimitado"
+                value={draft.runs_per_day ?? ep.runs_per_day ?? ''}
+                onChange={e => setDraft(d => ({ ...d, runs_per_day: e.target.value ? Number(e.target.value) : null }))}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+              />
+              <p className="text-zinc-600 text-xs">
+                Limite de execuções diárias · hoje: <span className={ep.runs_per_day && ep.runs_today >= ep.runs_per_day ? 'text-orange-400 font-medium' : 'text-zinc-400'}>{ep.runs_today}</span>
+                {ep.runs_per_day ? ` / ${ep.runs_per_day}` : ''}
+              </p>
             </div>
           </div>
 
@@ -634,6 +718,11 @@ export default function PipelineTab({
     await loadEndpoints()
   }
 
+  const handleManualBackfill = async (id: string) => {
+    await api.post(`/api/pipelines/${pipelineId}/endpoints/${id}/backfill`, { force_full: true })
+    await loadEndpoints()
+  }
+
   // ── Drag-and-drop ──────────────────────────────────────────────────────────
   const handleDragStart = (id: string) => setDraggingId(id)
   const handleDragOver  = (id: string) => { dragOverId.current = id }
@@ -817,6 +906,7 @@ export default function PipelineTab({
                 credentials={credentials}
                 onSave={handleSaveEndpoint}
                 onToggle={handleToggleEndpoint}
+                onManualBackfill={handleManualBackfill}
                 draggingId={draggingId}
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}

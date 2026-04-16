@@ -278,7 +278,13 @@ router.get('/:id/endpoints', verifyToken, requireRole('admin'), async (req, res,
   try {
     const result = await pool.query(
       `SELECT e.*,
-              c.name AS credential_name, c.email AS credential_email
+              c.name AS credential_name, c.email AS credential_email,
+              COALESCE((
+                SELECT COUNT(*) FROM c21_pipeline_jobs j
+                WHERE j.endpoint_id = e.id
+                  AND j.started_at >= CURRENT_DATE
+                  AND j.status IN ('done','error')
+              ), 0)::int AS runs_today
        FROM c21_pipeline_endpoints e
        LEFT JOIN c21_credentials c ON c.id = e.credential_id
        WHERE e.pipeline_id = $1
@@ -286,6 +292,28 @@ router.get('/:id/endpoints', verifyToken, requireRole('admin'), async (req, res,
       [req.params.id]
     );
     res.json({ data: result.rows });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ─── POST /api/pipelines/:id/endpoints/:eid/backfill ─────────────────────────
+// Triggers a one-time full backfill for a single endpoint, ignoring runs_per_day
+router.post('/:id/endpoints/:eid/backfill', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const epResult = await pool.query(
+      `SELECT e.*, c.email AS cred_email, c.crm_password AS cred_password
+       FROM c21_pipeline_endpoints e
+       LEFT JOIN c21_credentials c ON c.id = e.credential_id
+       WHERE e.id = $1 AND e.pipeline_id = $2`,
+      [req.params.eid, req.params.id]
+    );
+    const ep = epResult.rows[0];
+    if (!ep) return res.status(404).json({ error: 'Endpoint não encontrado' });
+
+    // Use the executor to run this endpoint with force_full=true
+    executor.runEndpointNow(req.params.id, ep, { force_full: true });
+    res.json({ accepted: true });
   } catch (err) {
     next(err);
   }
@@ -331,16 +359,18 @@ router.patch('/:id/endpoints/:eid', verifyToken, requireRole('admin'), async (re
     const values = [];
     let i = 1;
 
-    if (workspace_id     !== undefined) { sets.push(`workspace_id = $${i++}`);     values.push(workspace_id); }
-    if (workspace_name   !== undefined) { sets.push(`workspace_name = $${i++}`);   values.push(workspace_name); }
-    if (credential_id    !== undefined) { sets.push(`credential_id = $${i++}`);    values.push(credential_id || null); }
-    if (active_from      !== undefined) { sets.push(`active_from = $${i++}`);      values.push(active_from || null); }
-    if (active_to        !== undefined) { sets.push(`active_to = $${i++}`);        values.push(active_to || null); }
-    if (active_days      !== undefined) { sets.push(`active_days = $${i++}`);      values.push(active_days); }
-    if (backfill_mode    !== undefined) { sets.push(`backfill_mode = $${i++}`);    values.push(backfill_mode); }
-    if (backfill_from_date !== undefined) { sets.push(`backfill_from_date = $${i++}`); values.push(backfill_from_date || null); }
-    if (is_active        !== undefined) { sets.push(`is_active = $${i++}`);        values.push(is_active); }
-    if (status           !== undefined) { sets.push(`status = $${i++}`);           values.push(status); }
+    if (workspace_id        !== undefined) { sets.push(`workspace_id = $${i++}`);        values.push(workspace_id); }
+    if (workspace_name      !== undefined) { sets.push(`workspace_name = $${i++}`);      values.push(workspace_name); }
+    if (credential_id       !== undefined) { sets.push(`credential_id = $${i++}`);       values.push(credential_id || null); }
+    if (active_from         !== undefined) { sets.push(`active_from = $${i++}`);         values.push(active_from || null); }
+    if (active_to           !== undefined) { sets.push(`active_to = $${i++}`);           values.push(active_to || null); }
+    if (active_days         !== undefined) { sets.push(`active_days = $${i++}`);         values.push(active_days); }
+    if (backfill_mode       !== undefined) { sets.push(`backfill_mode = $${i++}`);       values.push(backfill_mode); }
+    if (backfill_from_date  !== undefined) { sets.push(`backfill_from_date = $${i++}`);  values.push(backfill_from_date || null); }
+    if (is_active           !== undefined) { sets.push(`is_active = $${i++}`);           values.push(is_active); }
+    if (status              !== undefined) { sets.push(`status = $${i++}`);              values.push(status); }
+    if (req.body.runs_per_day       !== undefined) { sets.push(`runs_per_day = $${i++}`);       values.push(req.body.runs_per_day === '' ? null : req.body.runs_per_day); }
+    if (req.body.incremental_months !== undefined) { sets.push(`incremental_months = $${i++}`); values.push(req.body.incremental_months || 14); }
 
     if (sets.length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
 
