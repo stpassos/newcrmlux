@@ -3,7 +3,8 @@ import { api } from '@/lib/api'
 import {
   FolderSync, Plus, Trash2, Eye, EyeOff,
   CheckCircle2, XCircle, Loader2, RefreshCw, Wifi, WifiOff,
-  Building2, Server, Activity, GitBranch, Search, ChevronRight
+  Building2, Server, Activity, GitBranch, Search, ChevronRight,
+  KeyRound, FlaskConical, Save, Ban, Pencil
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,15 +40,30 @@ interface WorkerStatus {
   error?: string
 }
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Credential {
+  id: string
+  name: string
+  email: string
+  is_active: boolean
+  last_tested_at: string | null
+  test_status: 'success' | 'error' | null
+  test_error: string | null
+  created_at: string
+  updated_at: string
+}
+
 // ─── Tab bar ──────────────────────────────────────────────────────────────────
 
-type Tab = 'sync' | 'workers' | 'endpoints'
+type Tab = 'sync' | 'workers' | 'endpoints' | 'credentials'
 
 function TabBar({ active, onChange }: { active: Tab; onChange: (t: Tab) => void }) {
   const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
     { id: 'sync', label: 'Sincronização', icon: <FolderSync className="w-4 h-4" /> },
     { id: 'workers', label: 'Workers', icon: <Server className="w-4 h-4" /> },
     { id: 'endpoints', label: 'EndPoints', icon: <GitBranch className="w-4 h-4" /> },
+    { id: 'credentials', label: 'Credenciais', icon: <KeyRound className="w-4 h-4" /> },
   ]
   return (
     <div className="flex gap-1 border-b border-zinc-800 mb-8">
@@ -727,6 +743,362 @@ function EndPointsTab() {
   )
 }
 
+// ─── Credenciais tab ──────────────────────────────────────────────────────────
+
+interface CredentialFormState {
+  name: string
+  email: string
+  password: string
+  showPassword: boolean
+}
+
+const EMPTY_FORM: CredentialFormState = { name: '', email: '', password: '', showPassword: false }
+
+function CredenciaisTab() {
+  const [credentials, setCredentials] = useState<Credential[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [addForm, setAddForm] = useState<CredentialFormState>(EMPTY_FORM)
+  const [addSaving, setAddSaving] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  // per-card state: editing, testing, saving
+  const [editing, setEditing] = useState<Record<string, CredentialFormState>>({})
+  const [testing, setTesting] = useState<Record<string, boolean>>({})
+  const [saving, setSaving] = useState<Record<string, boolean>>({})
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.get<{ data: Credential[] }>('/api/credentials')
+      setCredentials(res.data)
+    } catch {
+      setCredentials([])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  // ── Add new ──────────────────────────────────────────────
+  const handleAdd = async (e: FormEvent) => {
+    e.preventDefault()
+    setAddError(null)
+    setAddSaving(true)
+    try {
+      await api.post('/api/credentials', {
+        name: addForm.name,
+        email: addForm.email,
+        password: addForm.password,
+      })
+      setShowAddForm(false)
+      setAddForm(EMPTY_FORM)
+      await load()
+    } catch (err: unknown) {
+      setAddError(err instanceof Error ? err.message : 'Erro ao guardar credencial.')
+    } finally {
+      setAddSaving(false)
+    }
+  }
+
+  // ── Test connection ───────────────────────────────────────
+  const handleTest = async (id: string) => {
+    setTesting(prev => ({ ...prev, [id]: true }))
+    try {
+      await api.post(`/api/credentials/${id}/test`, {})
+      await load()
+    } finally {
+      setTesting(prev => ({ ...prev, [id]: false }))
+    }
+  }
+
+  // ── Save edit ─────────────────────────────────────────────
+  const handleSaveEdit = async (id: string) => {
+    const f = editing[id]
+    if (!f) return
+    setSaving(prev => ({ ...prev, [id]: true }))
+    try {
+      const body: Record<string, string> = { name: f.name, email: f.email }
+      if (f.password) body.password = f.password
+      await api.patch(`/api/credentials/${id}`, body)
+      setEditing(prev => { const n = { ...prev }; delete n[id]; return n })
+      await load()
+    } finally {
+      setSaving(prev => ({ ...prev, [id]: false }))
+    }
+  }
+
+  // ── Toggle active ─────────────────────────────────────────
+  const handleToggle = async (cred: Credential) => {
+    try {
+      await api.patch(`/api/credentials/${cred.id}`, { is_active: !cred.is_active })
+      await load()
+    } catch { /* ignore */ }
+  }
+
+  // ── Delete ────────────────────────────────────────────────
+  const handleDelete = async (id: string) => {
+    if (!confirm('Remover esta credencial?')) return
+    try {
+      await api.delete(`/api/credentials/${id}`)
+      await load()
+    } catch { /* ignore */ }
+  }
+
+  const startEdit = (cred: Credential) =>
+    setEditing(prev => ({
+      ...prev,
+      [cred.id]: { name: cred.name, email: cred.email, password: '', showPassword: false },
+    }))
+
+  const cancelEdit = (id: string) =>
+    setEditing(prev => { const n = { ...prev }; delete n[id]; return n })
+
+  return (
+    <section>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <div className="bg-zinc-800 rounded-lg p-2">
+            <KeyRound className="w-5 h-5 text-brand" />
+          </div>
+          <div>
+            <h3 className="text-white font-medium">Credenciais 21online.app</h3>
+            <p className="text-zinc-500 text-xs">
+              Contas utilizadas pelos WorkersLux para importação de dados
+            </p>
+          </div>
+        </div>
+        {!showAddForm && (
+          <button
+            onClick={() => { setShowAddForm(true); setAddError(null); setAddForm(EMPTY_FORM) }}
+            className="flex items-center gap-2 bg-brand hover:bg-brand-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            Adicionar Credencial
+          </button>
+        )}
+      </div>
+
+      {/* Add form */}
+      {showAddForm && (
+        <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 mb-6">
+          <h4 className="text-white text-sm font-semibold mb-4">Nova credencial</h4>
+          <form onSubmit={handleAdd} className="space-y-4">
+            {addError && (
+              <div className="flex items-center gap-2 text-sm px-4 py-3 rounded-lg bg-red-950/50 border border-red-800/60 text-red-300">
+                <XCircle className="w-4 h-4 shrink-0" />{addError}
+              </div>
+            )}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Nome</label>
+                <input
+                  type="text" value={addForm.name} required
+                  onChange={e => setAddForm(f => ({ ...f, name: e.target.value }))}
+                  placeholder="ex: Conta Principal"
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Email 21online.app</label>
+                <input
+                  type="email" value={addForm.email} required
+                  onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))}
+                  placeholder="email@exemplo.com"
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-600 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Password 21online.app</label>
+                <div className="relative">
+                  <input
+                    type={addForm.showPassword ? 'text' : 'password'} value={addForm.password} required
+                    onChange={e => setAddForm(f => ({ ...f, password: e.target.value }))}
+                    placeholder="••••••••"
+                    className="w-full bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-600 rounded-lg px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
+                  />
+                  <button type="button" tabIndex={-1}
+                    onClick={() => setAddForm(f => ({ ...f, showPassword: !f.showPassword }))}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                    {addForm.showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 pt-1">
+              <button type="submit" disabled={addSaving}
+                className="flex items-center gap-2 bg-brand hover:bg-brand-dark disabled:opacity-60 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors">
+                {addSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                Guardar
+              </button>
+              <button type="button" onClick={() => { setShowAddForm(false); setAddError(null) }}
+                className="text-zinc-400 hover:text-white text-sm px-4 py-2.5 rounded-lg hover:bg-zinc-800 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* List */}
+      {loading ? (
+        <div className="flex items-center gap-2 text-zinc-500 text-sm py-4">
+          <Loader2 className="w-4 h-4 animate-spin" />A carregar credenciais...
+        </div>
+      ) : credentials.length === 0 ? (
+        <div className="bg-zinc-900 border border-zinc-800 border-dashed rounded-xl p-10 text-center">
+          <KeyRound className="w-8 h-8 text-zinc-700 mx-auto mb-3" />
+          <p className="text-zinc-500 text-sm">Nenhuma credencial configurada.</p>
+          <p className="text-zinc-600 text-xs mt-1">Adiciona uma conta 21online.app para os WorkersLux poderem importar dados.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {credentials.map(cred => {
+            const isEditing = !!editing[cred.id]
+            const ef = editing[cred.id]
+            const isTesting = testing[cred.id] ?? false
+            const isSaving = saving[cred.id] ?? false
+
+            return (
+              <div key={cred.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+                {/* Card header */}
+                <div className="flex items-center justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`p-1.5 rounded-full shrink-0 ${cred.is_active ? 'bg-green-500/10' : 'bg-zinc-800'}`}>
+                      {cred.is_active
+                        ? <Wifi className="w-4 h-4 text-green-400" />
+                        : <WifiOff className="w-4 h-4 text-zinc-500" />}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-white font-medium text-sm truncate">{cred.name}</p>
+                      <p className="text-zinc-500 text-xs truncate">{cred.email}</p>
+                    </div>
+                  </div>
+
+                  {/* Status badge */}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {cred.test_status === 'success' && (
+                      <span className="flex items-center gap-1 text-xs bg-green-500/10 text-green-400 px-2.5 py-1 rounded-full">
+                        <CheckCircle2 className="w-3 h-3" />Validada
+                      </span>
+                    )}
+                    {cred.test_status === 'error' && (
+                      <span className="flex items-center gap-1 text-xs bg-red-500/10 text-red-400 px-2.5 py-1 rounded-full">
+                        <XCircle className="w-3 h-3" />Erro
+                      </span>
+                    )}
+                    <span className={`text-xs px-2.5 py-1 rounded-full ${cred.is_active ? 'bg-green-500/10 text-green-400' : 'bg-zinc-800 text-zinc-500'}`}>
+                      {cred.is_active ? 'Ativa' : 'Inativa'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Edit form (inline) */}
+                {isEditing && ef ? (
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-500">Nome</label>
+                      <input
+                        type="text" value={ef.name}
+                        onChange={e => setEditing(prev => ({ ...prev, [cred.id]: { ...prev[cred.id], name: e.target.value } }))}
+                        className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-500">Email</label>
+                      <input
+                        type="email" value={ef.email}
+                        onChange={e => setEditing(prev => ({ ...prev, [cred.id]: { ...prev[cred.id], email: e.target.value } }))}
+                        className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-zinc-500">Nova Password (opcional)</label>
+                      <div className="relative">
+                        <input
+                          type={ef.showPassword ? 'text' : 'password'} value={ef.password}
+                          placeholder="Deixa vazio para manter"
+                          onChange={e => setEditing(prev => ({ ...prev, [cred.id]: { ...prev[cred.id], password: e.target.value } }))}
+                          className="w-full bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-600 rounded-lg px-3 py-2 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+                        />
+                        <button type="button" tabIndex={-1}
+                          onClick={() => setEditing(prev => ({ ...prev, [cred.id]: { ...prev[cred.id], showPassword: !prev[cred.id].showPassword } }))}
+                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-zinc-300">
+                          {ef.showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  /* Test error message */
+                  cred.test_status === 'error' && cred.test_error && (
+                    <div className="flex items-start gap-2 bg-red-950/30 border border-red-800/30 rounded-lg px-3 py-2 mb-4">
+                      <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" />
+                      <p className="text-red-400 text-xs">{cred.test_error}</p>
+                    </div>
+                  )
+                )}
+
+                {/* Footer: last tested + actions */}
+                <div className="flex items-center justify-between gap-3 pt-3 border-t border-zinc-800">
+                  <span className="text-zinc-600 text-xs">
+                    {cred.last_tested_at
+                      ? `Testada ${new Date(cred.last_tested_at).toLocaleString('pt-PT')}`
+                      : 'Nunca testada'}
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    {isEditing ? (
+                      <>
+                        <button onClick={() => handleSaveEdit(cred.id)} disabled={isSaving}
+                          className="flex items-center gap-1.5 text-xs bg-brand hover:bg-brand-dark disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors">
+                          {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Guardar
+                        </button>
+                        <button onClick={() => cancelEdit(cred.id)}
+                          className="text-xs text-zinc-400 hover:text-white px-3 py-1.5 rounded-lg hover:bg-zinc-800 transition-colors">
+                          Cancelar
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button onClick={() => handleTest(cred.id)} disabled={isTesting}
+                          className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 disabled:opacity-50 px-3 py-1.5 rounded-lg transition-colors">
+                          {isTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <FlaskConical className="w-3.5 h-3.5" />}
+                          Testar conexão
+                        </button>
+                        <button onClick={() => startEdit(cred)}
+                          className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800 px-3 py-1.5 rounded-lg transition-colors">
+                          <Pencil className="w-3.5 h-3.5" />
+                          Editar
+                        </button>
+                        <button onClick={() => handleToggle(cred)}
+                          className={`flex items-center gap-1.5 text-xs border px-3 py-1.5 rounded-lg transition-colors ${
+                            cred.is_active
+                              ? 'border-zinc-700 text-zinc-400 hover:text-white hover:bg-zinc-800'
+                              : 'border-green-800/50 text-green-400 hover:bg-green-950/30'
+                          }`}>
+                          <Ban className="w-3.5 h-3.5" />
+                          {cred.is_active ? 'Desativar' : 'Ativar'}
+                        </button>
+                        <button onClick={() => handleDelete(cred.id)}
+                          className="text-zinc-600 hover:text-red-400 p-1.5 rounded-lg hover:bg-zinc-800 transition-colors">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function Sync() {
@@ -744,6 +1116,7 @@ export default function Sync() {
       {tab === 'sync' && <SyncTab />}
       {tab === 'workers' && <WorkersTab />}
       {tab === 'endpoints' && <EndPointsTab />}
+      {tab === 'credentials' && <CredenciaisTab />}
     </div>
   )
 }
