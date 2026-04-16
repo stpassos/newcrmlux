@@ -642,7 +642,7 @@ export default function ServerMonitorTab() {
   const [current,      setCurrent]     = useState<CurrentData | null>(null)
   const [history,      setHistory]     = useState<HistoryData | null>(null)
   const [logs,         setLogs]        = useState<LogsData | null>(null)
-  const [interval,     setInterval]    = useState<IntervalKey>('24h')
+  const [interval,     setIntervalKey]  = useState<IntervalKey>('24h')
   const [loadingMain,  setLoadingMain]  = useState(true)
   const [loadingHist,  setLoadingHist]  = useState(false)
   const [loadingLogs,  setLoadingLogs]  = useState(false)
@@ -738,7 +738,7 @@ export default function ServerMonitorTab() {
       <MetricsOverview data={current} loading={loadingMain} />
       <WorkersStatus  workers={current?.workers ?? []} loading={loadingMain} />
       <PipelineHealth data={current} loading={loadingMain} />
-      <MetricsCharts  history={history} interval={interval} onInterval={setInterval} loading={loadingHist} />
+      <MetricsCharts  history={history} interval={interval} onInterval={setIntervalKey} loading={loadingHist} />
       <LogsList       logs={logs} loading={loadingLogs} />
     </div>
   )
