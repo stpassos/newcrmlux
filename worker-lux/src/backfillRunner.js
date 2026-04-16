@@ -36,6 +36,11 @@ const ENTITY_API_PATH = {
   proposals: "/api/proposals",
 };
 
+// Entities that have a detail endpoint to enrich list records
+const ENTITY_DETAIL_PATH = {
+  users: "/api/users/{id}",
+};
+
 let activeBackfill = null; // { jobId, pauseRequested }
 
 // ─── Helpers ─────────────────────────────────────────────
@@ -259,6 +264,45 @@ function extractRecords(bodyText, entity) {
   const currentPage = data.current_page || data.currentPage || data.page || null;
 
   return { records, totalPages, currentPage };
+}
+
+// ─── Detail Enrichment ───────────────────────────────────
+
+async function enrichRecordsWithDetail(entity, records, email, password, extraCookies) {
+  const detailTemplate = ENTITY_DETAIL_PATH[entity];
+  if (!detailTemplate) return records;
+
+  const CONCURRENT = 3;
+  const enriched = records.map((r) => Object.assign({}, r));
+
+  for (let i = 0; i < enriched.length; i += CONCURRENT) {
+    const batch = enriched.slice(i, i + CONCURRENT);
+    await Promise.all(
+      batch.map(async (rec, idx) => {
+        const id = rec.id || rec.external_id || rec._id;
+        if (!id) return;
+        const path = detailTemplate.replace("{id}", id);
+        const url = `https://21online.app${path}`;
+        try {
+          const result = await fetch21onlinePage({ email, password, url, method: "GET", extraCookies });
+          if (result && result.success && result.body) {
+            let detail;
+            try { detail = JSON.parse(result.body); } catch { return; }
+            if (detail && typeof detail === "object" && !Array.isArray(detail)) {
+              Object.assign(enriched[i + idx], detail);
+            }
+          }
+        } catch (e) {
+          // skip enrichment for this record on error
+        }
+      })
+    );
+    if (i + CONCURRENT < enriched.length) {
+      await sleep(1000);
+    }
+  }
+
+  return enriched;
 }
 
 // ─── Core: Run Backfill ──────────────────────────────────
@@ -495,7 +539,13 @@ async function runBackfill(params) {
         break;
       }
 
-      const { records, totalPages } = extractRecords(result.body, entity);
+      let { records, totalPages } = extractRecords(result.body, entity);
+
+      // Enrich records with detail endpoint data (e.g. users → /api/users/{id})
+      if (ENTITY_DETAIL_PATH[entity] && records.length > 0) {
+        logger.info(`[backfill:${jobId}] Enriching ${records.length} ${entity} records with detail endpoint`);
+        records = await enrichRecordsWithDetail(entity, records, email, password, workspaceCookiePair);
+      }
 
       if (entity === "assets" && records.length > 0) {
         logger.info(`[backfill:${jobId}] assets sample references`, {
