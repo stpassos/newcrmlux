@@ -468,4 +468,4 @@ async function resumeOnStartup() {
   }
 }
 
-module.exports = { startPipeline, stopPipeline, isRunning, resumeOnStartup };
+module.exports = { startPipeline, stopPipeline, isRunning, resumeOnStartup, runEndpointNow };
