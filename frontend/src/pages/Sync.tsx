@@ -132,30 +132,45 @@ function TabBar({ active, onChange, pipelineTabs, onClosePipelineTab }: TabBarPr
 
 interface WorkersTabProps {
   pipelines: Pipeline[]
+  pipelineTabs: PipelineTabInfo[]
   onActivatePipeline: (worker: WorkerStatus) => Promise<void>
   onDeactivatePipeline: (pipelineId: string) => Promise<void>
+  onOpenPipelineTab: (worker: WorkerStatus) => void
 }
 
 interface PipelineBtnProps {
   workerName: string
   pipeline: Pipeline | undefined
+  tabOpen: boolean
   busy: boolean
   onActivate: () => void
   onDeactivate: () => void
+  onOpen: () => void
 }
 
-function PipelineBtn({ workerName: _n, pipeline, busy, onActivate, onDeactivate }: PipelineBtnProps) {
+function PipelineBtn({ workerName: _n, pipeline, tabOpen, busy, onActivate, onDeactivate, onOpen }: PipelineBtnProps) {
   const isActive = pipeline?.is_active ?? false
   if (isActive) {
     return (
-      <button
-        disabled={busy}
-        onClick={onDeactivate}
-        className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800/60 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
-      >
-        {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
-        Desativar Pipeline
-      </button>
+      <div className="flex items-center gap-2">
+        {!tabOpen && (
+          <button
+            onClick={onOpen}
+            className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-brand hover:border-brand/50 px-3 py-1.5 rounded-lg transition-colors"
+          >
+            <Zap className="w-3.5 h-3.5" />
+            Abrir Pipeline
+          </button>
+        )}
+        <button
+          disabled={busy}
+          onClick={onDeactivate}
+          className="flex items-center gap-1.5 text-xs border border-zinc-700 text-zinc-400 hover:text-red-400 hover:border-red-800/60 px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+          Desativar Pipeline
+        </button>
+      </div>
     )
   }
   return (
@@ -172,7 +187,7 @@ function PipelineBtn({ workerName: _n, pipeline, busy, onActivate, onDeactivate 
 
 interface WorkerLogLine { text: string; level: 'info' | 'warn' | 'error' }
 
-function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: WorkersTabProps) {
+function WorkersTab({ pipelines, pipelineTabs, onActivatePipeline, onDeactivatePipeline, onOpenPipelineTab }: WorkersTabProps) {
   const [workers, setWorkers] = useState<WorkerStatus[]>([])
   const [loading, setLoading] = useState(true)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
@@ -368,6 +383,7 @@ function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: Wor
                   <PipelineBtn
                     workerName={w.name}
                     pipeline={pipelines.find(p => p.worker_name === w.name)}
+                    tabOpen={pipelineTabs.some(t => t.workerName === w.name)}
                     busy={pipelineOp[w.name] ?? false}
                     onActivate={async () => {
                       setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: true }))
@@ -381,6 +397,7 @@ function WorkersTab({ pipelines, onActivatePipeline, onDeactivatePipeline }: Wor
                       try { await onDeactivatePipeline(pl.id) }
                       finally { setPipelineOp((prev: Record<string, boolean>) => ({ ...prev, [w.name]: false })) }
                     }}
+                    onOpen={() => onOpenPipelineTab(w)}
                   />
                 </div>
 
@@ -1319,6 +1336,17 @@ export default function Sync() {
     await loadPipelines()
   }
 
+  const handleOpenPipelineTab = (worker: WorkerStatus) => {
+    const tabId = `pipeline_${worker.name}`
+    const pipeline = pipelines.find(p => p.worker_name === worker.name)
+    if (!pipeline) return
+    setPipelineTabs(prev => {
+      if (prev.some(t => t.tabId === tabId)) return prev
+      return [...prev, { tabId, pipelineId: pipeline.id, workerName: worker.name, workerUrl: worker.url, label: `Pipeline ${worker.name}` }]
+    })
+    setTab(tabId)
+  }
+
   const handleClosePipelineTab = (tabId: string) => {
     setPipelineTabs(prev => prev.filter(t => t.tabId !== tabId))
     if (tab === tabId) setTab('workers')
@@ -1348,8 +1376,10 @@ export default function Sync() {
       {tab === 'workers'     && (
         <WorkersTab
           pipelines={pipelines}
+          pipelineTabs={pipelineTabs}
           onActivatePipeline={handleActivatePipeline}
           onDeactivatePipeline={handleDeactivatePipeline}
+          onOpenPipelineTab={handleOpenPipelineTab}
         />
       )}
       {tab === 'endpoints'   && <EndPointsTab />}
