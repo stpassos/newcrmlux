@@ -255,6 +255,8 @@ function extractRecords(bodyText, entity) {
     records = data.users;
   } else if (Array.isArray(data.assets)) {
     records = data.assets;
+  } else if (Array.isArray(data.contacts)) {
+    records = data.contacts;
   } else if (Array.isArray(data.leads)) {
     records = data.leads;
   } else if (Array.isArray(data.items)) {
