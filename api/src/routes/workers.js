@@ -14,6 +14,16 @@ const WORKERS = [
     url: process.env.WORKER_LUX2_URL || 'http://173.249.49.92:8081',
     key: process.env.WORKER_LUX2_KEY || process.env.WORKER_LUX1_KEY || '',
   },
+  {
+    name: 'WorkerLux-3',
+    url: process.env.WORKER_LUX3_URL || 'http://173.249.49.92:8082',
+    key: process.env.WORKER_LUX3_KEY || process.env.WORKER_LUX1_KEY || '',
+  },
+  {
+    name: 'WorkerLux-4',
+    url: process.env.WORKER_LUX4_URL || 'http://173.249.49.92:8083',
+    key: process.env.WORKER_LUX4_KEY || process.env.WORKER_LUX1_KEY || '',
+  },
 ];
 
 async function checkWorker(worker) {

@@ -2,18 +2,17 @@
  * pipelineExecutor.js
  *
  * Background execution engine for c21_pipelines.
+ * - Each pipeline has its own worker_url — all requests go to that worker exclusively
  * - Reads active endpoints in sort_order
- * - For each endpoint: resolves workspaces, calls worker backfill-workspace
+ * - For each endpoint: resolves workspaces via the pipeline's worker, calls backfill-workspace
  * - Waits random interval between endpoints
  * - Loops until pipeline status != 'running'
  */
 
 const pool = require('./db/pool');
 
-const WORKER_URL      = process.env.WORKER_LUX1_URL  || 'http://207.180.210.173:8080';
-const WORKER_KEY      = process.env.WORKER_LUX1_KEY  || process.env.INTERNAL_API_KEY || '';
-const API_BASE_URL    = process.env.API_BASE_URL      || 'https://imodigital.pt';
-const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
+const API_BASE_URL     = process.env.API_BASE_URL      || 'https://imodigital.pt';
+const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY  || '';
 
 // Map pipeline endpoint_path → backfill entity name (worker supported entities)
 const PATH_TO_ENTITY = {
@@ -25,7 +24,6 @@ const PATH_TO_ENTITY = {
   '/api/calendar':     'calendar',
   '/api/proposals':    'proposals',
   '/api/tasks':        'tasks',
-  '/api/calendar':     'calendar',
   '/api/contracts':    'contracts',
   '/api/owners':       'owners',
   '/api/buyers':       'buyers',
@@ -35,6 +33,28 @@ const PATH_TO_ENTITY = {
   '/api/documents':    'documents',
   '/api/awards':       'awards',
 };
+
+// Resolve auth key for a given worker by name (WorkerLux-1 → WORKER_LUX1_KEY, etc.)
+function getWorkerKey(workerName) {
+  const m = workerName && workerName.match(/WorkerLux-(\d+)/i);
+  if (m) {
+    const key = process.env[`WORKER_LUX${m[1]}_KEY`];
+    if (key) return key;
+  }
+  return process.env.INTERNAL_API_KEY || '';
+}
+
+// Collect all configured worker {url, key} pairs from env vars (for startup cleanup)
+function getAllWorkers() {
+  const workers = [];
+  for (const [k, v] of Object.entries(process.env)) {
+    const m = k.match(/^WORKER_LUX(\d+)_URL$/);
+    if (m && v) {
+      workers.push({ url: v, key: process.env[`WORKER_LUX${m[1]}_KEY`] || CALLBACK_API_KEY });
+    }
+  }
+  return workers;
+}
 
 // Active pipeline loops: pipelineId → { cancel: boolean }
 const activeLoops = new Map();
@@ -49,13 +69,13 @@ function randomBetween(minSec, maxSec) {
 
 // ─── Workspace resolution ─────────────────────────────────────────────────────
 
-async function fetchWorkspacesFromWorker(email, password) {
+async function fetchWorkspacesFromWorker(email, password, workerUrl, workerKey) {
   try {
-    const res = await fetch(`${WORKER_URL}/api/21online/crm-fetch`, {
+    const res = await fetch(`${workerUrl}/api/21online/crm-fetch`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-internal-api-key': WORKER_KEY,
+        'x-internal-api-key': workerKey,
       },
       body: JSON.stringify({ email, password, path: '/api/workspaces', method: 'GET' }),
       signal: AbortSignal.timeout(20000),
@@ -75,10 +95,10 @@ async function fetchWorkspacesFromWorker(email, password) {
 
 // ─── Single endpoint execution ────────────────────────────────────────────────
 
-async function clearWorkerStaleLock(pipelineId, endpointName) {
+async function clearWorkerStaleLock(pipelineId, endpointName, workerUrl, workerKey) {
   try {
-    const statusRes = await fetch(`${WORKER_URL}/api/21online/backfill-status`, {
-      headers: { 'x-internal-api-key': WORKER_KEY },
+    const statusRes = await fetch(`${workerUrl}/api/21online/backfill-status`, {
+      headers: { 'x-internal-api-key': workerKey },
       signal: AbortSignal.timeout(5000),
     });
     if (!statusRes.ok) return;
@@ -93,22 +113,20 @@ async function clearWorkerStaleLock(pipelineId, endpointName) {
     const dbStatus = dbRow.rows[0]?.status;
 
     if (dbStatus !== 'running') {
-      // Stale lock: DB says the job is done/error but worker still holds it
-      console.warn(`[pipeline:${pipelineId}] ${endpointName}: worker has stale lock on job ${status.jobId} (DB: ${dbStatus || 'not found'}) — force-cancelling`);
-      await fetch(`${WORKER_URL}/api/21online/backfill-cancel`, {
+      console.warn(`[pipeline:${pipelineId}] ${endpointName}: worker ${workerUrl} has stale lock on job ${status.jobId} (DB: ${dbStatus || 'not found'}) — force-cancelling`);
+      await fetch(`${workerUrl}/api/21online/backfill-cancel`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-internal-api-key': WORKER_KEY },
+        headers: { 'Content-Type': 'application/json', 'x-internal-api-key': workerKey },
         body: JSON.stringify({ reason: `Stale lock: DB status=${dbStatus || 'not found'}, detected by pipelineExecutor` }),
         signal: AbortSignal.timeout(5000),
-      }).catch(err => console.warn(`[pipeline:${pipelineId}] Could not cancel stale lock: ${err.message}`));
+      }).catch(err => console.warn(`[pipeline:${pipelineId}] Could not cancel stale lock on ${workerUrl}: ${err.message}`));
     }
   } catch (err) {
-    // Non-blocking — just log and continue
-    console.warn(`[pipeline:${pipelineId}] clearWorkerStaleLock error: ${err.message}`);
+    console.warn(`[pipeline:${pipelineId}] clearWorkerStaleLock error (${workerUrl}): ${err.message}`);
   }
 }
 
-async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
+async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, workerKey) {
   const entity = PATH_TO_ENTITY[ep.endpoint_path];
   if (!entity) {
     console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: path ${ep.endpoint_path} not supported by worker — skip`);
@@ -120,17 +138,17 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
     return;
   }
 
-  // Clear any stale in-memory lock on the worker before submitting
-  await clearWorkerStaleLock(pipelineId, ep.endpoint_name);
+  // Clear any stale in-memory lock on this pipeline's worker before submitting
+  await clearWorkerStaleLock(pipelineId, ep.endpoint_name, workerUrl, workerKey);
 
-  // Determine workspaces first (before touching endpoint status)
+  // Determine workspaces via this pipeline's credential + worker
   let workspaces = [];
   if (ep.workspace_id) {
     workspaces = [{ external_id: ep.workspace_id, name: ep.workspace_name || '' }];
   } else {
-    workspaces = await fetchWorkspacesFromWorker(ep.cred_email, ep.cred_password);
+    workspaces = await fetchWorkspacesFromWorker(ep.cred_email, ep.cred_password, workerUrl, workerKey);
     if (workspaces.length === 0) {
-      console.warn(`[pipeline:${pipelineId}] ${ep.endpoint_name}: no workspaces found for credential`);
+      console.warn(`[pipeline:${pipelineId}] ${ep.endpoint_name}: no workspaces found for credential ${ep.cred_email}`);
       await pool.query(
         `UPDATE c21_pipeline_endpoints SET status = 'error', updated_at = now() WHERE id = $1`,
         [ep.id]
@@ -154,14 +172,14 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
       [jobId, pipelineId, ep.id, ws.external_id, ws.name, ep.credential_id, entity]
     );
 
-    console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name} entity=${entity} job=${jobId}`);
+    console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name} entity=${entity} job=${jobId} worker=${workerUrl}`);
 
     try {
-      const workerRes = await fetch(`${WORKER_URL}/api/21online/backfill-workspace`, {
+      const workerRes = await fetch(`${workerUrl}/api/21online/backfill-workspace`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-internal-api-key': WORKER_KEY,
+          'x-internal-api-key': workerKey,
         },
         body: JSON.stringify({
           job_id:                jobId,
@@ -175,8 +193,8 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
           entities:              [entity],
           callback_url:          `${API_BASE_URL}/api/pipelines/callback`,
           callback_api_key:      CALLBACK_API_KEY,
-          backfill_mode:       ep._force_full ? 'full' : (ep.backfill_mode || 'full'),
-          incremental_months:  ep.incremental_months || 14,
+          backfill_mode:         ep._force_full ? 'full' : (ep.backfill_mode || 'full'),
+          incremental_months:    ep.incremental_months || 14,
           ...(entity === 'leads' && ep.backfill_from_date && { leads_since: ep.backfill_from_date.toISOString().slice(0, 10) }),
         }),
         signal: AbortSignal.timeout(15000),
@@ -185,27 +203,25 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
       if (!workerRes.ok) {
         const err = await workerRes.json().catch(() => ({}));
         const msg = err.error || `Worker HTTP ${workerRes.status}`;
-        console.error(`[pipeline:${pipelineId}] Worker rejected job ${jobId}: ${msg}`);
+        console.error(`[pipeline:${pipelineId}] Worker ${workerUrl} rejected job ${jobId}: ${msg}`);
         await pool.query(
           `UPDATE c21_pipeline_jobs
            SET status = 'error', error_msg = $1, finished_at = now()
            WHERE id = $2`,
           [msg, jobId]
         );
-        // Mark endpoint as error immediately (not running — worker never accepted it)
         await pool.query(
           `UPDATE c21_pipeline_endpoints SET status = 'error', updated_at = now() WHERE id = $1`,
           [ep.id]
         );
         endpointStatus = 'error';
-        // Still honour the interval even on rejection (prevents rapid-fire when worker is busy)
         const rejectWaitMs = randomBetween(intervalMin, intervalMax);
         console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name}: waiting ${Math.round(rejectWaitMs / 1000)}s after rejection`);
         await sleep(rejectWaitMs);
         continue;
       }
 
-      // Worker accepted — now mark endpoint as running
+      // Worker accepted — mark endpoint as running
       await pool.query(
         `UPDATE c21_pipeline_endpoints
          SET status = 'running', last_run_at = now(), updated_at = now()
@@ -213,8 +229,8 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
         [ep.id]
       );
 
-      // Poll DB for job completion (worker updates via callback endpoint)
-      // asset_details fetches one detail request per asset — allow 90 min for large portfolios
+      // Poll DB for job completion (worker updates via callback)
+      // asset_details needs up to 90 min (one request per asset, ~8s each)
       const pollTimeoutMs = entity === 'asset_details' ? 90 * 60 * 1000 : 15 * 60 * 1000;
       const finalStatus = await pollJobUntilDone(jobId, pollTimeoutMs);
       const jobRow = await pool.query('SELECT * FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
@@ -235,7 +251,6 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
       );
       endpointStatus = 'error';
     }
-
   }
 
   // Update endpoint final stats
@@ -250,7 +265,7 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
 async function pollJobUntilDone(jobId, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await sleep(2000); // check every 2s
+    await sleep(2000);
     const row = await pool.query('SELECT status FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
     const status = row.rows[0]?.status;
     if (status && ['done', 'error', 'cancelled'].includes(status)) return status;
@@ -286,10 +301,14 @@ async function runPipelineLoop(pipelineId) {
         break;
       }
 
+      // Resolve this pipeline's dedicated worker
+      const workerUrl = pipeline.worker_url;
+      const workerKey = getWorkerKey(pipeline.worker_name);
+
       // Load active endpoints with credential info
       const epRows = await pool.query(
         `SELECT e.*,
-                c.email   AS cred_email,
+                c.email        AS cred_email,
                 c.crm_password AS cred_password
          FROM c21_pipeline_endpoints e
          LEFT JOIN c21_credentials c ON c.id = e.credential_id
@@ -305,14 +324,14 @@ async function runPipelineLoop(pipelineId) {
         continue;
       }
 
-      console.log(`[pipeline:${pipelineId}] Starting cycle with ${endpoints.length} endpoints`);
+      console.log(`[pipeline:${pipelineId}] Starting cycle with ${endpoints.length} endpoints → ${workerUrl}`);
 
       for (const ep of endpoints) {
         if (ctx.cancel) break;
 
         // Check day-of-week schedule (1=Mon … 7=Sun)
         if (ep.active_days && ep.active_days.length > 0) {
-          const jsDay = new Date().getDay(); // 0=Sun
+          const jsDay = new Date().getDay();
           const isoDay = jsDay === 0 ? 7 : jsDay;
           if (!ep.active_days.includes(isoDay)) {
             console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (day ${isoDay} not in ${ep.active_days})`);
@@ -325,7 +344,6 @@ async function runPipelineLoop(pipelineId) {
           const now = new Date();
           const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
           const activeTo = ep.active_to.slice(0, 5);
-          // "00:00" means until end of day — skip upper bound check
           const afterEnd = activeTo !== '00:00' && hhmm >= activeTo;
           if (hhmm < ep.active_from.slice(0, 5) || afterEnd) {
             console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (time ${hhmm} outside ${ep.active_from}-${ep.active_to})`);
@@ -346,12 +364,12 @@ async function runPipelineLoop(pipelineId) {
           }
         }
 
-        await runEndpoint(pipelineId, ep, pipeline.interval_min, pipeline.interval_max);
+        await runEndpoint(pipelineId, ep, pipeline.interval_min, pipeline.interval_max, workerUrl, workerKey);
       }
 
       if (ctx.cancel) break;
 
-      // Check status again before next cycle
+      // Check status again before sleeping
       const statusCheck = await pool.query(
         'SELECT status, interval_min, interval_max FROM c21_pipelines WHERE id = $1',
         [pipelineId]
@@ -407,27 +425,43 @@ function isRunning(pipelineId) {
 }
 
 // Runs a single endpoint immediately (manual backfill button), bypassing runs_per_day
+// Looks up the pipeline's worker_url/key from DB to ensure correct worker routing
 function runEndpointNow(pipelineId, ep, opts = {}) {
-  const epWithFlag = { ...ep, _force_full: opts.force_full || false };
-  runEndpoint(pipelineId, epWithFlag, 5000, 10000).catch(err => {
-    console.error(`[pipeline:${pipelineId}] runEndpointNow error: ${err.message}`);
-  });
+  (async () => {
+    try {
+      const pRow = await pool.query(
+        'SELECT worker_name, worker_url FROM c21_pipelines WHERE id = $1',
+        [pipelineId]
+      );
+      const pipeline = pRow.rows[0];
+      if (!pipeline) {
+        console.error(`[pipeline:${pipelineId}] runEndpointNow: pipeline not found`);
+        return;
+      }
+      const workerUrl = pipeline.worker_url;
+      const workerKey = getWorkerKey(pipeline.worker_name);
+      const epWithFlag = { ...ep, _force_full: opts.force_full || false };
+      await runEndpoint(pipelineId, epWithFlag, 5000, 10000, workerUrl, workerKey);
+    } catch (err) {
+      console.error(`[pipeline:${pipelineId}] runEndpointNow error: ${err.message}`);
+    }
+  })();
 }
 
 // ─── Auto-resume on API startup ───────────────────────────────────────────────
-// If the API restarts mid-execution, any stale 'running' endpoint gets reset to
-// 'idle' and the pipeline loop resumes from the beginning of its next cycle.
+// Clears stale locks on ALL configured workers, then resumes any pipelines
+// that were marked 'running' before the API restarted.
 
 async function resumeOnStartup() {
   try {
-    // Fix any endpoints stuck in 'running' state from a previous API session
+    // Reset any endpoints stuck in 'running' state from a previous API session
     await pool.query(
       `UPDATE c21_pipeline_endpoints
        SET status = 'idle', updated_at = now()
        WHERE status = 'running'`
     );
 
-    // Fix any jobs stuck in 'running' state from a previous API session
+    // Mark stale running jobs as error
     const staleJobs = await pool.query(
       `UPDATE c21_pipeline_jobs
        SET status = 'error', error_msg = 'Stale job — API restarted', finished_at = now()
@@ -438,24 +472,26 @@ async function resumeOnStartup() {
       console.log(`[pipelineExecutor] Cleared ${staleJobs.rowCount} stale running job(s) on startup`);
     }
 
-    // Force-cancel any stale in-memory lock on the worker
-    // (worker may still be executing a job that the API has now marked as error)
-    try {
-      const cancelRes = await fetch(`${WORKER_URL}/api/21online/backfill-cancel`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-internal-api-key': WORKER_KEY },
-        body: JSON.stringify({ reason: 'API restarted — clearing stale lock' }),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (cancelRes.ok) {
-        const data = await cancelRes.json().catch(() => ({}));
-        if (data.success) {
-          console.log(`[pipelineExecutor] Cleared stale worker lock on startup (cancelled job: ${data.cancelled_job_id})`);
+    // Cancel stale in-memory locks on ALL configured workers (not just one)
+    const workers = getAllWorkers();
+    await Promise.allSettled(workers.map(async w => {
+      try {
+        const cancelRes = await fetch(`${w.url}/api/21online/backfill-cancel`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-internal-api-key': w.key },
+          body: JSON.stringify({ reason: 'API restarted — clearing stale lock' }),
+          signal: AbortSignal.timeout(8000),
+        });
+        if (cancelRes.ok) {
+          const data = await cancelRes.json().catch(() => ({}));
+          if (data.success && data.cancelled_job_id) {
+            console.log(`[pipelineExecutor] Cleared stale lock on ${w.url} (cancelled job: ${data.cancelled_job_id})`);
+          }
         }
+      } catch (err) {
+        console.warn(`[pipelineExecutor] Could not clear worker lock on ${w.url}: ${err.message}`);
       }
-    } catch (err) {
-      console.warn(`[pipelineExecutor] Could not clear worker lock on startup: ${err.message}`);
-    }
+    }));
 
     // Resume pipeline loops for all pipelines still marked as running
     const result = await pool.query(
