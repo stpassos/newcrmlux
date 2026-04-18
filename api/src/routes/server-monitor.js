@@ -169,35 +169,37 @@ router.get('/history', verifyToken, requireRole('admin'), async (req, res, next)
   const interval = ['1h', '24h', '7d'].includes(req.query.interval)
     ? req.query.interval : '24h';
 
-  const pgInterval = { '1h': '1 hour', '24h': '24 hours', '7d': '7 days' }[interval];
-  const bucket     = { '1h': '1 minute', '24h': '10 minutes', '7d': '1 hour' }[interval];
+  // Bucket size in seconds and lookback in seconds
+  // date_trunc only accepts fixed parts ('minute','hour') — use epoch-floor bucketing instead
+  const bucketSec  = { '1h': 60, '24h': 600, '7d': 3600 }[interval];
+  const lookbackSec = { '1h': 3600, '24h': 86400, '7d': 604800 }[interval];
 
   try {
     const metrics = await pool.query(
       `SELECT
-         date_trunc($1, collected_at)                                     AS t,
+         to_timestamp(floor(EXTRACT(EPOCH FROM collected_at) / $1) * $1) AS t,
          ROUND(AVG(cpu_pct)::numeric, 1)                                  AS cpu_pct,
          ROUND((AVG(ram_used_mb)::numeric / NULLIF(AVG(ram_total_mb),0) * 100)::numeric, 1) AS ram_pct,
          ROUND(AVG(net_rx_kbps)::numeric, 1)                              AS net_rx,
          ROUND(AVG(net_tx_kbps)::numeric, 1)                              AS net_tx
        FROM lux_server_metrics
-       WHERE collected_at >= now() - $2::interval
+       WHERE collected_at >= now() - ($2 || ' seconds')::interval
        GROUP BY 1
        ORDER BY 1 ASC`,
-      [bucket, pgInterval]
+      [bucketSec, lookbackSec]
     );
 
     const jobs = await pool.query(
       `SELECT
-         date_trunc($1, started_at)                                        AS t,
+         to_timestamp(floor(EXTRACT(EPOCH FROM started_at) / $1) * $1)    AS t,
          COUNT(*) FILTER (WHERE status = 'done')                           AS completed,
          COUNT(*) FILTER (WHERE status = 'error')                          AS failed,
          ROUND(AVG(duration_ms)::numeric / 1000, 1)                        AS avg_duration_s
        FROM c21_pipeline_jobs
-       WHERE started_at >= now() - $2::interval
+       WHERE started_at >= now() - ($2 || ' seconds')::interval
        GROUP BY 1
        ORDER BY 1 ASC`,
-      [bucket, pgInterval]
+      [bucketSec, lookbackSec]
     );
 
     res.json({ interval, metrics: metrics.rows, jobs: jobs.rows });
