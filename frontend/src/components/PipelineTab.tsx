@@ -204,8 +204,14 @@ function EndpointCard({
         <span className="text-zinc-600 text-xs font-mono w-5 shrink-0">{index + 1}</span>
 
         {/* Status icon */}
-        <span className={EP_STATUS_CONFIG[ep.status].color}>
+        <span
+          className={`relative group ${EP_STATUS_CONFIG[ep.status].color}`}
+          title={EP_STATUS_CONFIG[ep.status].label}
+        >
           {EP_STATUS_CONFIG[ep.status].icon}
+          <span className="pointer-events-none absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 whitespace-nowrap rounded bg-zinc-800 border border-zinc-700 px-2 py-0.5 text-xs text-zinc-200 opacity-0 group-hover:opacity-100 transition-opacity z-50">
+            {EP_STATUS_CONFIG[ep.status].label}
+          </span>
         </span>
 
         {/* Skip reason icon */}
