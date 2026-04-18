@@ -58,13 +58,14 @@ router.post('/callback', async (req, res) => {
     if (event === 'records') {
       const records    = Array.isArray(data.records) ? data.records : [];
       const entity     = data.entity || null;
-      const workspaceId = data.workspace_id || data.workspace_external_id || null;
+      const workspaceId = data.workspace_id || data.workspace_external_id || '';
       let stored = 0;
 
       if (records.length > 0 && entity) {
         const table = ENTITY_TABLE[entity];
         if (table) {
-          // Upsert each record — use id/external_id from the record as the dedup key
+          // Upsert each record — dedup key is (external_id, workspace_id) so different
+          // workspaces with overlapping IDs are stored as separate rows
           for (const rec of records) {
             const extId = String(rec.id || rec.external_id || rec.slug || '');
             if (!extId) continue;
@@ -72,8 +73,8 @@ router.post('/callback', async (req, res) => {
               await pool.query(
                 `INSERT INTO ${table} (external_id, workspace_id, data, imported_at, updated_at)
                  VALUES ($1, $2, $3, now(), now())
-                 ON CONFLICT (external_id)
-                 DO UPDATE SET data = EXCLUDED.data, workspace_id = EXCLUDED.workspace_id, updated_at = now()`,
+                 ON CONFLICT (external_id, workspace_id)
+                 DO UPDATE SET data = EXCLUDED.data, updated_at = now()`,
                 [extId, workspaceId, JSON.stringify(rec)]
               );
               stored++;
