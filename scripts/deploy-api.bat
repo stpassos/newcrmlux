@@ -14,6 +14,12 @@ cd /d C:\newcrmlux-api\api
 call npm install --omit=dev
 if %ERRORLEVEL% neq 0 ( echo ERRO: npm install falhou & exit /b 1 )
 
+echo [3/3] Kill orphan processes on port 4000...
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":4000 " ^| findstr LISTENING') do (
+  echo Killing orphan PID %%a on port 4000
+  taskkill /F /PID %%a 2>nul
+)
+
 echo [3/3] pm2 restart...
 pm2 startOrRestart C:\newcrmlux-api\api\ecosystem.config.js --update-env
 if %ERRORLEVEL% neq 0 ( echo ERRO: pm2 restart falhou & exit /b 1 )
