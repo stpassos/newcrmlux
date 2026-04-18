@@ -325,7 +325,10 @@ async function runPipelineLoop(pipelineId) {
         if (ep.active_from && ep.active_to) {
           const now = new Date();
           const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-          if (hhmm < ep.active_from.slice(0,5) || hhmm >= ep.active_to.slice(0,5)) {
+          const activeTo = ep.active_to.slice(0, 5);
+          // "00:00" means until end of day — skip upper bound check
+          const afterEnd = activeTo !== '00:00' && hhmm >= activeTo;
+          if (hhmm < ep.active_from.slice(0, 5) || afterEnd) {
             console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (time ${hhmm} outside ${ep.active_from}-${ep.active_to})`);
             continue;
           }
