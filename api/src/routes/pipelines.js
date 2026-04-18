@@ -416,6 +416,21 @@ router.get('/:id/jobs', verifyToken, requireRole('admin'), async (req, res, next
   }
 });
 
+// ─── DELETE /api/pipelines/:id/jobs ──────────────────────────────────────────
+// Clear job history for a pipeline (excludes currently running jobs)
+router.delete('/:id/jobs', verifyToken, requireRole('admin'), async (req, res, next) => {
+  try {
+    const result = await pool.query(
+      `DELETE FROM c21_pipeline_jobs
+       WHERE pipeline_id = $1 AND status != 'running'`,
+      [req.params.id]
+    );
+    res.json({ deleted: result.rowCount });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── POST /api/pipelines/:id/jobs ────────────────────────────────────────────
 // Create a job record (called by worker or manually)
 router.post('/:id/jobs', verifyToken, requireRole('admin'), async (req, res, next) => {

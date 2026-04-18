@@ -4,7 +4,7 @@ import {
   Play, Square, RefreshCw, Loader2, GripVertical,
   CheckCircle2, XCircle, Clock, AlertTriangle, Minus,
   ToggleLeft, ToggleRight, ChevronDown, ChevronUp, Settings,
-  Database, History, Zap, CalendarX, Timer, Ban, Download
+  Database, History, Zap, CalendarX, Timer, Ban, Download, Trash2
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -470,6 +470,8 @@ function EndpointCard({
 function JobsHistory({ pipelineId, refreshKey }: { pipelineId: string; refreshKey?: number }) {
   const [jobs, setJobs] = useState<PipelineJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [clearing, setClearing] = useState(false)
+  const [confirmClear, setConfirmClear] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -489,6 +491,18 @@ function JobsHistory({ pipelineId, refreshKey }: { pipelineId: string; refreshKe
     const t = setInterval(load, 5000)
     return () => clearInterval(t)
   }, [load])
+
+  const handleClear = async () => {
+    if (!confirmClear) { setConfirmClear(true); return }
+    setClearing(true)
+    setConfirmClear(false)
+    try {
+      await api.delete(`/api/pipelines/${pipelineId}/jobs`)
+      await load()
+    } finally {
+      setClearing(false)
+    }
+  }
 
   const statusChip = (s: PipelineJob['status']) => {
     const map = {
@@ -523,14 +537,29 @@ function JobsHistory({ pipelineId, refreshKey }: { pipelineId: string; refreshKe
             <p className="text-zinc-500 text-xs">Últimos 100 jobs executados neste pipeline</p>
           </div>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="flex items-center gap-2 text-zinc-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-50"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={load}
+            disabled={loading}
+            className="flex items-center gap-2 text-zinc-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Atualizar
+          </button>
+          <button
+            onClick={handleClear}
+            disabled={clearing || jobs.length === 0}
+            onBlur={() => setConfirmClear(false)}
+            className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+              confirmClear
+                ? 'bg-red-600 hover:bg-red-700 text-white'
+                : 'text-zinc-400 hover:text-red-400 hover:bg-zinc-800'
+            }`}
+          >
+            {clearing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+            {confirmClear ? 'Confirmar?' : 'Limpar'}
+          </button>
+        </div>
       </div>
 
       {loading ? (
