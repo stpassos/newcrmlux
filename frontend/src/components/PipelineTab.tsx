@@ -545,6 +545,7 @@ function JobsHistory({ pipelineId }: { pipelineId: string }) {
                   <th className="text-right text-zinc-500 text-xs font-medium px-4 py-3">Fail</th>
                   <th className="text-right text-zinc-500 text-xs font-medium px-4 py-3">Tempo</th>
                   <th className="text-left text-zinc-500 text-xs font-medium px-4 py-3">Início</th>
+                  <th className="text-left text-zinc-500 text-xs font-medium px-4 py-3">Fim</th>
                 </tr>
               </thead>
               <tbody>
@@ -563,6 +564,9 @@ function JobsHistory({ pipelineId }: { pipelineId: string }) {
                     <td className="px-4 py-3 text-zinc-500 text-xs text-right font-mono">{elapsed(job)}</td>
                     <td className="px-4 py-3 text-zinc-600 text-xs whitespace-nowrap">
                       {new Date(job.started_at).toLocaleString('pt-PT')}
+                    </td>
+                    <td className="px-4 py-3 text-zinc-600 text-xs whitespace-nowrap">
+                      {job.finished_at ? new Date(job.finished_at).toLocaleString('pt-PT') : '—'}
                     </td>
                   </tr>
                 ))}

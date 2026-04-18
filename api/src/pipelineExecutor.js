@@ -233,10 +233,6 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
       endpointStatus = 'error';
     }
 
-    // Random interval after each workspace job
-    const waitMs = randomBetween(intervalMin, intervalMax);
-    console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name}: waiting ${Math.round(waitMs / 1000)}s before next job`);
-    await sleep(waitMs);
   }
 
   // Update endpoint final stats
@@ -251,7 +247,7 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
 async function pollJobUntilDone(jobId, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
-    await sleep(8000); // check every 8s
+    await sleep(2000); // check every 2s
     const row = await pool.query('SELECT status FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
     const status = row.rows[0]?.status;
     if (status && ['done', 'error', 'cancelled'].includes(status)) return status;
