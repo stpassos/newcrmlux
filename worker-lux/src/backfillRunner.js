@@ -245,7 +245,18 @@ function extractRecords(bodyText, entity) {
   const data = parsed;
   let records = [];
 
-  if (Array.isArray(data)) {
+  // Calendar response: { visits, cpcvs, signs, cmis, tasks, contact_birthdays }
+  // Merge all event type arrays into a flat list with event_type injected
+  const CALENDAR_EVENT_KEYS = ['visits', 'cpcvs', 'signs', 'cmis', 'tasks', 'contact_birthdays'];
+  if (entity === 'calendar' && CALENDAR_EVENT_KEYS.some(k => Array.isArray(data[k]))) {
+    for (const key of CALENDAR_EVENT_KEYS) {
+      if (Array.isArray(data[key])) {
+        for (const rec of data[key]) {
+          records.push({ ...rec, event_type: key });
+        }
+      }
+    }
+  } else if (Array.isArray(data)) {
     records = data;
   } else if (Array.isArray(data.data)) {
     records = data.data;
