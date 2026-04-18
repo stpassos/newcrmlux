@@ -459,12 +459,11 @@ function EndpointCard({
 
 // ─── Jobs History Table ───────────────────────────────────────────────────────
 
-function JobsHistory({ pipelineId }: { pipelineId: string }) {
+function JobsHistory({ pipelineId, refreshKey }: { pipelineId: string; refreshKey?: number }) {
   const [jobs, setJobs] = useState<PipelineJob[]>([])
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
-    setLoading(true)
     try {
       const res = await api.get<{ data: PipelineJob[] }>(`/api/pipelines/${pipelineId}/jobs`)
       setJobs(res.data)
@@ -475,7 +474,13 @@ function JobsHistory({ pipelineId }: { pipelineId: string }) {
     }
   }, [pipelineId])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load() }, [load, refreshKey])
+
+  // Auto-poll every 5s to keep history fresh while pipeline runs
+  useEffect(() => {
+    const t = setInterval(load, 5000)
+    return () => clearInterval(t)
+  }, [load])
 
   const statusChip = (s: PipelineJob['status']) => {
     const map = {
@@ -601,6 +606,7 @@ export default function PipelineTab({
   const [loadingEp, setLoadingEp] = useState(true)
   const [workspaces, setWorkspaces] = useState<Workspace[]>([])
   const [credentials, setCredentials] = useState<Credential[]>([])
+  const [jobsKey, setJobsKey] = useState(0)
 
   // settings edit
   const [intervalMin, setIntervalMin] = useState<number>(pipeline?.interval_min ?? 5)
@@ -725,6 +731,7 @@ export default function PipelineTab({
   const handleManualBackfill = async (id: string) => {
     await api.post(`/api/pipelines/${pipelineId}/endpoints/${id}/backfill`, { force_full: true })
     await loadEndpoints()
+    setJobsKey((k: number) => k + 1)
   }
 
   // ── Drag-and-drop ──────────────────────────────────────────────────────────
@@ -922,7 +929,7 @@ export default function PipelineTab({
       </section>
 
       {/* ── Section 3: Jobs History ──────────────────────────────────────── */}
-      <JobsHistory pipelineId={pipelineId} />
+      <JobsHistory pipelineId={pipelineId} refreshKey={jobsKey} />
     </div>
   )
 }
