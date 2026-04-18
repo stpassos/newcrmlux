@@ -21,8 +21,9 @@ const ENTITY_TABLE = {
   visits:       'c21_visits',
   proposals:    'c21_proposals',
   documents:    'c21_documents',
-  awards:       'c21_awards',
-  workspaces:   'c21_workspaces',
+  awards:        'c21_awards',
+  asset_details: 'c21_assets',
+  workspaces:    'c21_workspaces',
 };
 
 // ─── POST /api/pipelines/callback — called by worker (no JWT, key-protected) ─

@@ -19,6 +19,7 @@ const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
 const PATH_TO_ENTITY = {
   '/api/users':        'users',
   '/api/assets':       'assets',
+  '/api/assets/{id}':  'asset_details',
   '/api/contacts':     'contacts',
   '/api/leads':        'leads',
   '/api/calendar':     'calendar',

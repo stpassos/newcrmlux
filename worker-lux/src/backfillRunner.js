@@ -27,14 +27,22 @@ const BACKFILL_CONFIG = {
 };
 
 const ENTITY_API_PATH = {
-  users: "/api/users",
-  assets: "/api/assets",
-  leads: "/api/leads",
-  contacts: "/api/contacts",
-  calendar: "/api/calendar",
-  tasks: "/api/tasks",
-  contracts: "/api/contracts",
-  proposals: "/api/proposals",
+  users:        "/api/users",
+  assets:       "/api/assets",
+  leads:        "/api/leads",
+  contacts:     "/api/contacts",
+  calendar:     "/api/calendar",
+  tasks:        "/api/tasks",
+  contracts:    "/api/contracts",
+  proposals:    "/api/proposals",
+  owners:       "/api/owners",
+  buyers:       "/api/buyers",
+  transactions: "/api/transactions",
+  referrals:    "/api/referrals",
+  visits:       "/api/visits",
+  documents:    "/api/documents",
+  awards:       "/api/awards",
+  asset_details: "/api/assets",
 };
 
 // Entities that have a detail endpoint to enrich list records
@@ -462,6 +470,115 @@ async function runCalendarBackfill(ctx, params, workspaceCookiePair, entityIdx) 
   return { entityFetched, entityStored, entityFailed, wasPaused };
 }
 
+// ─── Asset Details: enrich c21_assets via /api/assets/{id} ──────────────────
+
+async function runAssetDetailsBackfill(ctx, params, workspaceCookiePair) {
+  const {
+    jobId, workspaceId, workspaceExternalId, workspaceName, workspaceRowId,
+    email, password,
+  } = params;
+
+  let page = 1;
+  const allIds = [];
+  let hasMore = true;
+  const seenHashes = new Set();
+
+  logger.info(`[backfill:${jobId}] asset_details: collecting asset IDs...`);
+
+  while (hasMore && page <= BACKFILL_CONFIG.MAX_PAGES_PER_ENTITY) {
+    if (activeBackfill && activeBackfill.pauseRequested) {
+      return { entityFetched: 0, entityStored: 0, entityFailed: false, wasPaused: true };
+    }
+    if (page > 1) await sleep(BACKFILL_CONFIG.DELAY_BETWEEN_PAGES_MS);
+    const url = buildEntityUrl('/api/assets', workspaceId, page);
+    let result;
+    try {
+      result = await fetch21onlinePage({ email, password, url, method: 'GET', extraCookies: workspaceCookiePair });
+    } catch (err) {
+      logger.error(`[backfill:${jobId}] asset_details: error collecting IDs page ${page}: ${err.message}`);
+      return { entityFetched: 0, entityStored: 0, entityFailed: true, wasPaused: false };
+    }
+    if (!result.success) {
+      logger.error(`[backfill:${jobId}] asset_details: failed page ${page}: status ${result.status}`);
+      return { entityFetched: 0, entityStored: 0, entityFailed: true, wasPaused: false };
+    }
+    const { records, totalPages } = extractRecords(result.body, 'assets');
+    if (records.length === 0) { hasMore = false; break; }
+    const pageHash = hashRecords(records);
+    if (seenHashes.has(pageHash)) { hasMore = false; break; }
+    seenHashes.add(pageHash);
+    for (const rec of records) {
+      const id = rec.id || rec.external_id;
+      if (id) allIds.push(String(id));
+    }
+    logger.info(`[backfill:${jobId}] asset_details: page ${page} -> ${records.length} IDs (total: ${allIds.length})`);
+    if (totalPages && page >= totalPages) { hasMore = false; }
+    else if (records.length < BACKFILL_CONFIG.ASSUMED_PAGE_SIZE) { hasMore = false; }
+    else { page++; }
+  }
+
+  if (allIds.length === 0) {
+    logger.info(`[backfill:${jobId}] asset_details: no assets found`);
+    return { entityFetched: 0, entityStored: 0, entityFailed: false, wasPaused: false };
+  }
+
+  logger.info(`[backfill:${jobId}] asset_details: fetching detail for ${allIds.length} assets`);
+
+  let entityFetched = 0;
+  let entityStored = 0;
+  let wasPaused = false;
+  const CONCURRENT = 3;
+
+  for (let i = 0; i < allIds.length; i += CONCURRENT) {
+    if (activeBackfill && activeBackfill.pauseRequested) { wasPaused = true; break; }
+
+    const batch = allIds.slice(i, i + CONCURRENT);
+    const details = [];
+
+    await Promise.all(batch.map(async (id) => {
+      const detailUrl = `https://21online.app/api/assets/${id}`;
+      try {
+        const res = await fetch21onlinePage({ email, password, url: detailUrl, method: 'GET', extraCookies: workspaceCookiePair });
+        if (res.success && res.body) {
+          let detail;
+          try { detail = JSON.parse(res.body); } catch { return; }
+          if (detail && typeof detail === 'object' && !Array.isArray(detail)) {
+            details.push({ ...detail, id: String(id) });
+          }
+        }
+      } catch (err) {
+        logger.warn(`[backfill:${jobId}] asset_details: error id=${id}: ${err.message}`);
+      }
+    }));
+
+    if (details.length > 0) {
+      entityFetched += details.length;
+      const storeResult = await callbackRecords(ctx, 'asset_details', details);
+      if (storeResult && storeResult.stored) entityStored += storeResult.stored;
+    }
+
+    const progressPct = Math.round((i + batch.length) / allIds.length * 100);
+    await sendCallback(ctx.callbackUrl, ctx.callbackApiKey, {
+      action: 'worker_callback', event: 'progress',
+      job_id: jobId, workspace_row_id: workspaceRowId, entity: 'asset_details',
+      data: {
+        page: Math.ceil((i + CONCURRENT) / CONCURRENT),
+        records_in_page: details.length,
+        records_fetched: entityFetched,
+        records_stored: entityStored,
+        progress_pct: Math.min(progressPct, 99),
+        workspace_id: workspaceId,
+        workspace_external_id: workspaceExternalId,
+        workspace_name: workspaceName,
+      },
+    });
+
+    if (i + CONCURRENT < allIds.length) await sleep(1000);
+  }
+
+  return { entityFetched, entityStored, entityFailed: false, wasPaused };
+}
+
 // ─── Core: Run Backfill ──────────────────────────────────
 
 async function runBackfill(params) {
@@ -603,6 +720,33 @@ async function runBackfill(params) {
       startPage = checkpoint[entity].last_page;
       logger.info(`[backfill:${jobId}] Resuming ${entity} from page ${startPage}`);
     }
+
+    // ── Asset Details: special enrichment via /api/assets/{id} ─────────────
+    if (entity === 'asset_details') {
+      const detResult = await runAssetDetailsBackfill(ctx, {
+        ...params,
+        workspaceId, workspaceExternalId, workspaceName, workspaceRowId, email, password,
+      }, workspaceCookiePair);
+      totalFetched += detResult.entityFetched;
+      totalStored  += detResult.entityStored;
+      if (detResult.wasPaused) { wasPaused = true; break; }
+      if (detResult.entityFailed) { totalFailed++; break; }
+      completedEntities++;
+      await sendCallback(callbackUrl, callbackApiKey, {
+        action: 'worker_callback', event: 'entity_done',
+        job_id: jobId, workspace_row_id: workspaceRowId, entity,
+        data: {
+          total_fetched: detResult.entityFetched,
+          total_stored:  detResult.entityStored,
+          workspace_id: workspaceId,
+          workspace_external_id: workspaceExternalId,
+          workspace_name: workspaceName,
+        },
+      });
+      logger.info(`[backfill:${jobId}] asset_details done: ${detResult.entityFetched} fetched, ${detResult.entityStored} stored`);
+      continue;
+    }
+    // ─────────────────────────────────────────────────────────────────────
 
     const apiPath = ENTITY_API_PATH[entity];
     if (!apiPath) {
