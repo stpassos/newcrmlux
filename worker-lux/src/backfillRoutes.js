@@ -59,7 +59,7 @@ function registerBackfillRoutes(app, authMiddleware) {
       });
     }
 
-    const validEntities = ["users", "assets", "leads", "contacts", "calendar", "tasks", "contracts", "proposals", "owners", "buyers", "transactions", "referrals", "visits", "documents", "awards"];
+    const validEntities = ["users", "assets", "leads", "contacts", "calendar", "tasks", "contracts", "proposals", "owners", "buyers", "transactions", "referrals", "visits", "documents", "awards", "asset_details"];
     const invalidEntities = entities.filter((e) => !validEntities.includes(e));
 
     if (invalidEntities.length > 0) {
