@@ -119,7 +119,9 @@ function getSkipReason(ep: PipelineEndpoint): SkipReason {
   if (ep.active_days?.length > 0 && !ep.active_days.includes(isoDay)) return 'wrong_day'
   if (ep.active_from && ep.active_to) {
     const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`
-    if (hhmm < ep.active_from.slice(0,5) || hhmm >= ep.active_to.slice(0,5)) return 'wrong_time'
+    const activeTo = ep.active_to.slice(0, 5)
+    const afterEnd = activeTo !== '00:00' && hhmm >= activeTo
+    if (hhmm < ep.active_from.slice(0, 5) || afterEnd) return 'wrong_time'
   }
   if (ep.runs_per_day && ep.runs_today >= ep.runs_per_day) return 'runs_limit'
   return null
