@@ -573,7 +573,7 @@ async function runAssetDetailsBackfill(ctx, params, workspaceCookiePair) {
       },
     });
 
-    if (i + CONCURRENT < allIds.length) await sleep(1000);
+    if (i + CONCURRENT < allIds.length) await sleep(200);
   }
 
   return { entityFetched, entityStored, entityFailed: false, wasPaused };

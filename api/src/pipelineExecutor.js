@@ -214,7 +214,9 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax) {
       );
 
       // Poll DB for job completion (worker updates via callback endpoint)
-      const finalStatus = await pollJobUntilDone(jobId, 15 * 60 * 1000);
+      // asset_details fetches one detail request per asset — allow 90 min for large portfolios
+      const pollTimeoutMs = entity === 'asset_details' ? 90 * 60 * 1000 : 15 * 60 * 1000;
+      const finalStatus = await pollJobUntilDone(jobId, pollTimeoutMs);
       const jobRow = await pool.query('SELECT * FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
       if (jobRow.rows[0]) {
         totalFetched  += jobRow.rows[0].fetched  || 0;
