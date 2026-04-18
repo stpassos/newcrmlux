@@ -211,21 +211,26 @@ router.post('/', verifyToken, requireRole('admin'), async (req, res, next) => {
     );
     const pipeline = pipelineResult.rows[0];
 
-    // Insert predefined endpoints only if none exist yet
-    const existing = await client.query(
-      'SELECT COUNT(*) FROM c21_pipeline_endpoints WHERE pipeline_id = $1',
+    // Insert any predefined endpoints that don't yet exist for this pipeline (by endpoint_path)
+    const existingPaths = await client.query(
+      'SELECT endpoint_path FROM c21_pipeline_endpoints WHERE pipeline_id = $1',
       [pipeline.id]
     );
-    if (parseInt(existing.rows[0].count, 10) === 0) {
-      for (let i = 0; i < PREDEFINED_ENDPOINTS.length; i++) {
-        const ep = PREDEFINED_ENDPOINTS[i];
-        await client.query(
-          `INSERT INTO c21_pipeline_endpoints
-             (pipeline_id, sort_order, endpoint_name, endpoint_path)
-           VALUES ($1, $2, $3, $4)`,
-          [pipeline.id, i, ep.endpoint_name, ep.endpoint_path]
-        );
-      }
+    const existingPathSet = new Set(existingPaths.rows.map(r => r.endpoint_path));
+    const maxSortRow = await client.query(
+      'SELECT COALESCE(MAX(sort_order), -1) AS max_sort FROM c21_pipeline_endpoints WHERE pipeline_id = $1',
+      [pipeline.id]
+    );
+    let nextSort = parseInt(maxSortRow.rows[0].max_sort, 10) + 1;
+    for (let i = 0; i < PREDEFINED_ENDPOINTS.length; i++) {
+      const ep = PREDEFINED_ENDPOINTS[i];
+      if (existingPathSet.has(ep.endpoint_path)) continue;
+      await client.query(
+        `INSERT INTO c21_pipeline_endpoints
+           (pipeline_id, sort_order, endpoint_name, endpoint_path)
+         VALUES ($1, $2, $3, $4)`,
+        [pipeline.id, existingPathSet.size === 0 ? i : nextSort++, ep.endpoint_name, ep.endpoint_path]
+      );
     }
 
     await client.query('COMMIT');
