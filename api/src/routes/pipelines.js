@@ -41,11 +41,16 @@ router.post('/callback', async (req, res) => {
 
   try {
     if (event === 'check_running_jobs') {
-      // Return whether another job is running for this workspace
+      // Return whether another job is running for this workspace within the SAME pipeline.
+      // Using pipeline_id from the current job ensures workers on different pipelines
+      // sharing the same workspace don't block each other.
       const wsId = data.workspace_id || data.workspace_external_id || null;
       const result = await pool.query(
-        `SELECT id FROM c21_pipeline_jobs
-         WHERE workspace_id = $1 AND status = 'running' AND id != $2
+        `SELECT j.id FROM c21_pipeline_jobs j
+         WHERE j.workspace_id = $1
+           AND j.status = 'running'
+           AND j.id != $2
+           AND j.pipeline_id = (SELECT pipeline_id FROM c21_pipeline_jobs WHERE id = $2)
          LIMIT 1`,
         [wsId, job_id]
       );
