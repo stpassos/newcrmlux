@@ -88,6 +88,9 @@ async function runMigrations() {
     // Add runs_per_day and incremental_months columns if not present
     await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD COLUMN IF NOT EXISTS runs_per_day INT DEFAULT NULL`);
     await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD COLUMN IF NOT EXISTS incremental_months INT DEFAULT 14`);
+    // Expand backfill_mode check constraint to include 'incremental'
+    await pool.query(`ALTER TABLE c21_pipeline_endpoints DROP CONSTRAINT IF EXISTS c21_pipeline_endpoints_backfill_mode_check`);
+    await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD CONSTRAINT c21_pipeline_endpoints_backfill_mode_check CHECK (backfill_mode IN ('full','from_date','incremental'))`);
     console.log('[migrations] c21_pipeline_endpoints columns OK');
   } catch (err) {
     console.error('[migrations] Error:', err.message);
