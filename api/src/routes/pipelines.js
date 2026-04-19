@@ -160,6 +160,7 @@ router.post('/callback', async (req, res) => {
 const PREDEFINED_ENDPOINTS = [
   { endpoint_name: 'Agentes',        endpoint_path: '/api/users' },
   { endpoint_name: 'Contactos',      endpoint_path: '/api/contacts' },
+  { endpoint_name: 'Leads',          endpoint_path: '/api/leads' },
   { endpoint_name: 'Imóveis',        endpoint_path: '/api/assets' },
   { endpoint_name: 'Vendedores',     endpoint_path: '/api/owners' },
   { endpoint_name: 'Compradores',    endpoint_path: '/api/buyers' },

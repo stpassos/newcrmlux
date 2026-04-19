@@ -372,17 +372,19 @@ function EndpointCard({
               )}
             </div>
 
-            {/* Incremental months */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-zinc-400">Meses incremental</label>
-              <input
-                type="number" min={1} max={60}
-                value={draft.incremental_months ?? ep.incremental_months ?? 14}
-                onChange={e => setDraft(d => ({ ...d, incremental_months: Number(e.target.value) }))}
-                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
-              />
-              <p className="text-zinc-600 text-xs">Número de meses à frente a importar no modo incremental</p>
-            </div>
+            {/* Incremental months — only visible in incremental mode */}
+            {(draft.backfill_mode ?? ep.backfill_mode) === 'incremental' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-zinc-400">Meses incremental</label>
+                <input
+                  type="number" min={1} max={60}
+                  value={draft.incremental_months ?? ep.incremental_months ?? 14}
+                  onChange={e => setDraft(d => ({ ...d, incremental_months: Number(e.target.value) }))}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+                />
+                <p className="text-zinc-600 text-xs">Número de meses à frente a importar no modo incremental</p>
+              </div>
+            )}
 
             {/* Runs per day */}
             <div className="space-y-1.5">
