@@ -23,6 +23,7 @@ const ENTITY_TABLE = {
   documents:    'c21_documents',
   awards:        'c21_awards',
   asset_details: 'c21_assets',
+  user_details:  'c21_agents',
   workspaces:    'c21_workspaces',
 };
 
@@ -177,6 +178,7 @@ const PREDEFINED_ENDPOINTS = [
   { endpoint_name: 'Documentos',     endpoint_path: '/api/documents' },
   { endpoint_name: 'Galardões',      endpoint_path: '/api/awards' },
   { endpoint_name: 'Detalhe Imóvel', endpoint_path: '/api/assets/{id}' },
+  { endpoint_name: 'Detalhe Agente', endpoint_path: '/api/users/{id}' },
 ];
 
 // ─── GET /api/pipelines ──────────────────────────────────────────────────────
