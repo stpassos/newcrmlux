@@ -11,4 +11,21 @@ body {
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Prevent rubber-band scroll on iOS from showing white edges */
+  overscroll-behavior: none;
+  background-color: #09090b;
+}
+
+/* Hide scrollbar while keeping scroll functionality */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Safe area padding for notch/home-indicator devices */
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom);
 }

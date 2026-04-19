@@ -256,7 +256,8 @@ function WorkersStatus({ workers, loading }: { workers: WorkerMetric[]; loading:
         <EmptyState text="Sem dados de workers — agente ainda não enviou métricas" />
       ) : (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[560px]">
             <thead>
               <tr className="border-b border-zinc-800 text-zinc-500 text-xs uppercase tracking-wide">
                 <th className="text-left px-4 py-3">Worker</th>
@@ -297,6 +298,7 @@ function WorkersStatus({ workers, loading }: { workers: WorkerMetric[]; loading:
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </section>
@@ -381,7 +383,7 @@ function MetricsCharts({ history, interval, onInterval, loading }: {
 
   return (
     <section>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-start sm:items-center justify-between mb-4 gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="bg-zinc-800 rounded-lg p-2">
             <TrendingUp className="w-5 h-5 text-brand" />
@@ -392,7 +394,7 @@ function MetricsCharts({ history, interval, onInterval, loading }: {
           </div>
           {loading && <Loader2 className="w-4 h-4 text-zinc-500 animate-spin" />}
         </div>
-        <div className="flex gap-1">
+        <div className="flex gap-1 shrink-0">
           {intervals.map(i => (
             <button
               key={i}
@@ -527,7 +529,8 @@ function LogsList({ logs, loading }: { logs: LogsData | null; loading: boolean }
       {view === 'jobs' && (
         jobs.length === 0 ? <EmptyState text="Sem jobs registados" /> : (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[680px]">
               <thead>
                 <tr className="border-b border-zinc-800 text-zinc-500 text-xs uppercase tracking-wide">
                   <th className="text-left px-4 py-3">Entidade</th>
@@ -559,6 +562,7 @@ function LogsList({ logs, loading }: { logs: LogsData | null; loading: boolean }
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )
       )}
@@ -566,7 +570,8 @@ function LogsList({ logs, loading }: { logs: LogsData | null; loading: boolean }
       {view === 'agent' && (
         agentLogs.length === 0 ? <EmptyState text="Sem logs do agente" /> : (
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
+            <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[500px]">
               <thead>
                 <tr className="border-b border-zinc-800 text-zinc-500 text-xs uppercase tracking-wide">
                   <th className="text-left px-4 py-3">Worker</th>
@@ -592,6 +597,7 @@ function LogsList({ logs, loading }: { logs: LogsData | null; loading: boolean }
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         )
       )}
@@ -704,7 +710,7 @@ export default function ServerMonitorTab() {
   return (
     <div className="space-y-10">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start sm:items-center justify-between gap-3 flex-wrap">
         <div>
           <h3 className="text-white font-semibold text-lg">Server Monitor</h3>
           <p className="text-zinc-500 text-sm">

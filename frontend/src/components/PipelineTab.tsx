@@ -431,7 +431,7 @@ function EndpointCard({
 
           {/* Stats row */}
           {ep.last_run_at && (
-            <div className="flex items-center gap-4 text-xs">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
               <span className="text-zinc-600">Último run: {new Date(ep.last_run_at).toLocaleString('pt-PT')}</span>
               <span className="text-zinc-500">Fetch: <span className="text-zinc-300">{ep.last_fetched}</span></span>
               <span className="text-zinc-500">Inserido: <span className="text-green-400">{ep.last_inserted}</span></span>
@@ -822,7 +822,7 @@ export default function PipelineTab({
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 space-y-5">
           {/* Status + control */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
             <div className="flex items-center gap-3">
               <span className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full ${statusCfg.bg} ${statusCfg.color}`}>
                 {isRunning && <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />}

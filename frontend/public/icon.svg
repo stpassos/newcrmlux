@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- App background -->
+  <rect width="512" height="512" rx="100" fill="#18181b"/>
+
+  <!-- Building body -->
+  <rect x="120" y="204" width="272" height="244" rx="6" fill="#C4963A" opacity="0.18"/>
+
+  <!-- Roof gable -->
+  <path d="M96 216L256 96L416 216" fill="none" stroke="#C4963A" stroke-width="22" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Building outline -->
+  <rect x="120" y="204" width="272" height="244" rx="6" fill="none" stroke="#C4963A" stroke-width="18"/>
+
+  <!-- Windows top row -->
+  <rect x="156" y="236" width="72" height="60" rx="6" fill="#C4963A" opacity="0.55"/>
+  <rect x="284" y="236" width="72" height="60" rx="6" fill="#C4963A" opacity="0.55"/>
+
+  <!-- Windows bottom row -->
+  <rect x="156" y="316" width="72" height="60" rx="6" fill="#C4963A" opacity="0.55"/>
+  <rect x="284" y="316" width="72" height="60" rx="6" fill="#C4963A" opacity="0.55"/>
+
+  <!-- Door -->
+  <rect x="218" y="360" width="76" height="88" rx="5" fill="#C4963A" opacity="0.8"/>
+  <circle cx="272" cy="406" r="5" fill="#18181b"/>
+</svg>

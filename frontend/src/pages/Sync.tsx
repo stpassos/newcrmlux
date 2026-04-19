@@ -87,33 +87,34 @@ function TabBar({ active, onChange, pipelineTabs, onClosePipelineTab }: TabBarPr
     { id: 'database',       label: 'Base de Dados', icon: <Database className="w-4 h-4" /> },
   ]
   return (
-    <div className="flex gap-1 border-b border-zinc-800 mb-8 flex-wrap">
+    <div className="flex gap-1 border-b border-zinc-800 mb-6 sm:mb-8 overflow-x-auto scrollbar-none">
       {staticTabs.map(t => (
         <button
           key={t.id}
           onClick={() => onChange(t.id)}
-          className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px ${
+          className={`flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium transition-colors border-b-2 -mb-px shrink-0 ${
             active === t.id
               ? 'border-brand text-white'
               : 'border-transparent text-zinc-500 hover:text-zinc-300'
           }`}
         >
           {t.icon}
-          {t.label}
+          <span className="hidden xs:inline sm:inline">{t.label}</span>
         </button>
       ))}
       {pipelineTabs.map(pt => (
-        <div key={pt.tabId} className={`flex items-center border-b-2 -mb-px transition-colors ${
+        <div key={pt.tabId} className={`flex items-center border-b-2 -mb-px transition-colors shrink-0 ${
           active === pt.tabId ? 'border-brand' : 'border-transparent'
         }`}>
           <button
             onClick={() => onChange(pt.tabId)}
-            className={`flex items-center gap-2 pl-4 pr-2 py-3 text-sm font-medium transition-colors ${
+            className={`flex items-center gap-2 pl-3 sm:pl-4 pr-2 py-3 text-sm font-medium transition-colors ${
               active === pt.tabId ? 'text-white' : 'text-zinc-500 hover:text-zinc-300'
             }`}
           >
             <Zap className="w-4 h-4" />
-            {pt.label}
+            <span className="hidden sm:inline">{pt.label}</span>
+            <span className="sm:hidden">Pipeline</span>
           </button>
           <button
             onClick={e => { e.stopPropagation(); onClosePipelineTab(pt.tabId) }}
@@ -375,7 +376,7 @@ function WorkersTab({ pipelines, pipelineTabs, onActivatePipeline, onDeactivateP
               {/* Footer */}
               <div className="mt-3 pt-3 border-t border-zinc-800 space-y-2">
                 {/* Row 1: meta + pipeline btn */}
-                <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-3">
                     <span className="text-zinc-600 text-xs">HTTP {w.http_status ?? '—'}</span>
                     <span className="text-zinc-600 text-xs">{new Date(w.checked_at).toLocaleTimeString('pt-PT')}</span>
@@ -575,7 +576,7 @@ function SyncTab() {
         {/* Selector */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-4">
           <p className="text-zinc-400 text-xs font-medium mb-3">Selecionar credencial</p>
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <select
               value={selectedCredId}
               onChange={e => { setSelectedCredId(e.target.value); setActivateError(null); setActivateSuccess(false) }}
@@ -591,7 +592,7 @@ function SyncTab() {
             <button
               onClick={handleActivate}
               disabled={!selectedCredId || activating}
-              className="flex items-center gap-2 bg-brand hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors shrink-0"
+              className="flex items-center justify-center gap-2 bg-brand hover:bg-brand-dark disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors sm:shrink-0"
             >
               {activating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
               Ativar
@@ -786,7 +787,7 @@ function EndPointsTab() {
       </div>
 
       {/* Input */}
-      <form onSubmit={handleMap} className="flex gap-3 mb-6">
+      <form onSubmit={handleMap} className="flex flex-col sm:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500 pointer-events-none" />
           <input
@@ -825,7 +826,7 @@ function EndPointsTab() {
       {result && (
         <div>
           {/* Summary */}
-          <div className="flex items-center gap-4 mb-4">
+          <div className="flex flex-wrap items-center gap-2 mb-4">
             <div className="flex items-center gap-2 bg-zinc-900 border border-zinc-800 rounded-lg px-4 py-2">
               <span className="text-zinc-500 text-xs">Endpoint</span>
               <span className="text-brand text-sm font-mono">{result.endpoint}</span>
@@ -1046,7 +1047,7 @@ function CredenciaisTab() {
   return (
     <section>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-start sm:items-center justify-between gap-3 mb-6 flex-wrap">
         <div className="flex items-center gap-3">
           <div className="bg-zinc-800 rounded-lg p-2">
             <KeyRound className="w-5 h-5 text-brand" />
@@ -1061,10 +1062,10 @@ function CredenciaisTab() {
         {!showAddForm && (
           <button
             onClick={() => { setShowAddForm(true); setAddError(null); setAddForm(EMPTY_FORM) }}
-            className="flex items-center gap-2 bg-brand hover:bg-brand-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="flex items-center gap-2 bg-brand hover:bg-brand-dark text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors shrink-0"
           >
             <Plus className="w-4 h-4" />
-            Adicionar Credencial
+            Adicionar
           </button>
         )}
       </div>
@@ -1230,14 +1231,14 @@ function CredenciaisTab() {
                 )}
 
                 {/* Footer: last tested + actions */}
-                <div className="flex items-center justify-between gap-3 pt-3 border-t border-zinc-800">
-                  <span className="text-zinc-600 text-xs">
+                <div className="flex items-start sm:items-center justify-between gap-3 pt-3 border-t border-zinc-800 flex-wrap">
+                  <span className="text-zinc-600 text-xs shrink-0">
                     {cred.last_tested_at
                       ? `Testada ${new Date(cred.last_tested_at).toLocaleString('pt-PT')}`
                       : 'Nunca testada'}
                   </span>
 
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {isEditing ? (
                       <>
                         <button onClick={() => handleSaveEdit(cred.id)} disabled={isSaving}
@@ -1357,9 +1358,9 @@ export default function Sync() {
   }, [])
 
   return (
-    <div className="p-8">
+    <div className="p-4 sm:p-6 lg:p-8">
       <div className="mb-6">
-        <h2 className="text-2xl font-semibold text-white">Sincronização</h2>
+        <h2 className="text-xl sm:text-2xl font-semibold text-white">Sincronização</h2>
         <p className="text-zinc-500 text-sm mt-1">Gestão da conexão com o 21online.app</p>
       </div>
 

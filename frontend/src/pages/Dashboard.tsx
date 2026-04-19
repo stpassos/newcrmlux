@@ -2,9 +2,9 @@ import { Building2, Users, LayoutDashboard, FolderSync } from 'lucide-react'
 
 export default function Dashboard() {
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h2 className="text-2xl font-semibold text-white">Dashboard</h2>
+    <div className="p-4 sm:p-6 lg:p-8">
+      <div className="mb-6 sm:mb-8">
+        <h2 className="text-xl sm:text-2xl font-semibold text-white">Dashboard</h2>
         <p className="text-zinc-500 text-sm mt-1">Bem-vindo ao painel de administração</p>
       </div>
 
