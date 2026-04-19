@@ -182,6 +182,34 @@ router.get('/', verifyToken, requireRole('admin'), async (req, res, next) => {
        FROM c21_pipelines
        ORDER BY created_at ASC`
     );
+
+    // Self-healing: insert any predefined endpoints missing from existing pipelines
+    if (result.rows.length > 0) {
+      const pipelineIds = result.rows.map(r => r.id);
+      for (const pipelineId of pipelineIds) {
+        const existingPaths = await pool.query(
+          'SELECT endpoint_path FROM c21_pipeline_endpoints WHERE pipeline_id = $1',
+          [pipelineId]
+        );
+        const existingPathSet = new Set(existingPaths.rows.map(r => r.endpoint_path));
+        const missing = PREDEFINED_ENDPOINTS.filter(ep => !existingPathSet.has(ep.endpoint_path));
+        if (missing.length === 0) continue;
+        const maxSortRow = await pool.query(
+          'SELECT COALESCE(MAX(sort_order), -1) AS max_sort FROM c21_pipeline_endpoints WHERE pipeline_id = $1',
+          [pipelineId]
+        );
+        let nextSort = parseInt(maxSortRow.rows[0].max_sort, 10) + 1;
+        for (const ep of missing) {
+          await pool.query(
+            `INSERT INTO c21_pipeline_endpoints (pipeline_id, sort_order, endpoint_name, endpoint_path)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT DO NOTHING`,
+            [pipelineId, nextSort++, ep.endpoint_name, ep.endpoint_path]
+          );
+        }
+      }
+    }
+
     res.json({ data: result.rows });
   } catch (err) {
     next(err);
