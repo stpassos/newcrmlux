@@ -12,9 +12,10 @@ const SUPABASE_RECEIVER_URL = process.env.SUPABASE_RECEIVER_URL || '';
 const SUPABASE_RECEIVER_KEY = process.env.SUPABASE_RECEIVER_KEY || '';
 
 // Entities to forward to Supabase (entity → supabase entity name)
+// NOTE: 'users' (list) is intentionally excluded — /api/users list returns the workspace
+// team leader role for all members; only /api/users/{id} (user_details) has the correct role.
 const SUPABASE_ENTITY_MAP = {
-  users:        'users',
-  user_details: 'users',
+  user_details: 'users',   // enriched detail only — correct role guaranteed
   assets:       'assets',
   asset_details:'assets',
   leads:        'leads',
