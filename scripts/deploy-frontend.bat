@@ -18,13 +18,9 @@ echo [3/4] npm build...
 call npm run build
 if %ERRORLEVEL% neq 0 ( echo ERRO: npm build falhou & exit /b 1 )
 
-echo [4/4] Copiar para httpdocs (imodigital.pt)...
-xcopy /E /Y /I /Q dist\* C:\inetpub\vhosts\imodigital.pt\httpdocs\
-if %ERRORLEVEL% neq 0 ( echo ERRO: xcopy httpdocs falhou & exit /b 1 )
-
-echo [4/4] Copiar para admin.imodigital.pt...
-xcopy /E /Y /I /Q dist\* C:\inetpub\vhosts\imodigital.pt\admin.imodigital.pt\
-if %ERRORLEVEL% neq 0 ( echo ERRO: xcopy admin falhou & exit /b 1 )
+echo [4/4] Copiar para worker.century21lux.pt...
+xcopy /E /Y /I /Q dist\* C:\inetpub\vhosts\century21lux.pt\worker.century21lux.pt\
+if %ERRORLEVEL% neq 0 ( echo ERRO: xcopy worker.century21lux.pt falhou & exit /b 1 )
 
 echo Deploy concluido com sucesso.
 endlocal

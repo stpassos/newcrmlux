@@ -1,4 +1,4 @@
-name: Deploy Frontend → imodigital.pt
+name: Deploy Frontend → worker.century21lux.pt
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
 
 jobs:
   deploy:
-    name: Build & Deploy to Plesk httpdocs
+    name: Build & Deploy to worker.century21lux.pt
     runs-on: ubuntu-latest
     steps:
       - name: SSH → run deploy-frontend.bat
