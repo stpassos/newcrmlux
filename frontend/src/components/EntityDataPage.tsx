@@ -28,8 +28,13 @@ interface FetchResult {
 
 function getField(row: RecordRow, field: string): unknown {
   if (field.startsWith('data.')) {
-    const key = field.slice(5)
-    return row.data?.[key]
+    const path = field.slice(5).split('.')
+    let val: unknown = row.data
+    for (const key of path) {
+      if (val === null || val === undefined || typeof val !== 'object') return undefined
+      val = (val as Record<string, unknown>)[key]
+    }
+    return val
   }
   return row[field]
 }
@@ -41,7 +46,7 @@ function fmt(val: unknown): string {
     return s.length > 70 ? s.slice(0, 70) + '…' : s
   }
   const s = String(val)
-  return s.length > 80 ? s.slice(0, 80) + '…' : s
+  return s.length > 120 ? s.slice(0, 120) + '…' : s
 }
 
 function fmtDate(s: unknown): string {
@@ -56,7 +61,7 @@ function fmtDate(s: unknown): string {
 }
 
 function fmtLabel(field: string): string {
-  const name = field.startsWith('data.') ? field.slice(5) : field.replace(/_/g, ' ')
+  const name = field.startsWith('data.') ? field.slice(5).replace(/\./g, ' › ') : field.replace(/_/g, ' ')
   return name.charAt(0).toUpperCase() + name.slice(1)
 }
 

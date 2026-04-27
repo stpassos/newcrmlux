@@ -1,8 +1,9 @@
 import EntityDataPage from '@/components/EntityDataPage'
 
 const DEFAULT_FIELDS = [
-  'data.name',
   'data.reference',
+  'data.title.pt',
+  'data.description.pt',
   'data.typeDesignation',
   'data.statusDesignation',
   'data.price',
