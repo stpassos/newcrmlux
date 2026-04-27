@@ -7,6 +7,35 @@ const router = express.Router();
 
 const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY || '';
 
+// Supabase receiver — push CRM data to century21lux.pt after each batch
+const SUPABASE_RECEIVER_URL = process.env.SUPABASE_RECEIVER_URL || '';
+const SUPABASE_RECEIVER_KEY = process.env.SUPABASE_RECEIVER_KEY || '';
+
+// Entities to forward to Supabase (entity → supabase entity name)
+const SUPABASE_ENTITY_MAP = {
+  users:        'users',
+  user_details: 'users',
+  assets:       'assets',
+  asset_details:'assets',
+  leads:        'leads',
+};
+
+async function pushToSupabase(entity, workspaceId, records) {
+  if (!SUPABASE_RECEIVER_URL || !SUPABASE_RECEIVER_KEY) return;
+  const supabaseEntity = SUPABASE_ENTITY_MAP[entity];
+  if (!supabaseEntity) return;
+  const payload = records
+    .map(rec => ({ external_id: String(rec.id || rec.external_id || ''), data: rec }))
+    .filter(r => r.external_id);
+  if (!payload.length) return;
+  fetch(SUPABASE_RECEIVER_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': SUPABASE_RECEIVER_KEY },
+    body: JSON.stringify({ entity: supabaseEntity, workspace_id: workspaceId, records: payload }),
+    signal: AbortSignal.timeout(30000),
+  }).catch(err => console.warn(`[supabase-push] ${entity}: ${err.message}`));
+}
+
 // Maps worker entity names → c21_ table names
 const ENTITY_TABLE = {
   users:        'c21_agents',
@@ -89,6 +118,11 @@ router.post('/callback', async (req, res) => {
             }
           }
         }
+      }
+
+      // Push to Supabase (century21lux.pt) — fire-and-forget
+      if (stored > 0 && entity) {
+        pushToSupabase(entity, workspaceId, records);
       }
 
       // Update job fetched count
