@@ -18,6 +18,16 @@ const SUPABASE_ENTITY_MAP = {
   assets:       'assets',
   asset_details:'assets',
   leads:        'leads',
+  contacts:     'contacts',
+  calendar:     'calendar',
+  owners:       'owners',
+  buyers:       'buyers',
+  transactions: 'transactions',
+  referrals:    'referrals',
+  visits:       'visits',
+  proposals:    'proposals',
+  documents:    'documents',
+  awards:       'awards',
 };
 
 async function pushToSupabase(entity, workspaceId, records) {
