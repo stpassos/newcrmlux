@@ -20,6 +20,7 @@ const PATH_TO_ENTITY = {
   '/api/assets':       'assets',
   '/api/assets/{id}':  'asset_details',
   '/api/users/{id}':   'user_details',
+  '/api/owners/{id}':  'owner_details',
   '/api/contacts':     'contacts',
   '/api/leads':        'leads',
   '/api/calendar':     'calendar',
@@ -232,7 +233,7 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, 
 
       // Poll DB for job completion (worker updates via callback)
       // asset_details needs up to 90 min (one request per asset, ~8s each)
-      const pollTimeoutMs = (entity === 'asset_details' || entity === 'user_details') ? 90 * 60 * 1000 : 15 * 60 * 1000;
+      const pollTimeoutMs = (entity === 'asset_details' || entity === 'user_details' || entity === 'owner_details') ? 90 * 60 * 1000 : 15 * 60 * 1000;
       const finalStatus = await pollJobUntilDone(jobId, pollTimeoutMs);
       const jobRow = await pool.query('SELECT * FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
       if (jobRow.rows[0]) {

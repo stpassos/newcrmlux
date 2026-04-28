@@ -22,6 +22,7 @@ const SUPABASE_ENTITY_MAP = {
   contacts:     'contacts',
   calendar:     'calendar',
   owners:       'owners',
+  owner_details:'owners',
   buyers:       'buyers',
   transactions: 'transactions',
   referrals:    'referrals',
@@ -64,6 +65,7 @@ const ENTITY_TABLE = {
   awards:        'c21_awards',
   asset_details: 'c21_assets',
   user_details:  'c21_agents',
+  owner_details: 'c21_owners',
   workspaces:    'c21_workspaces',
 };
 
@@ -222,8 +224,9 @@ const PREDEFINED_ENDPOINTS = [
   { endpoint_name: 'Propostas',      endpoint_path: '/api/proposals' },
   { endpoint_name: 'Documentos',     endpoint_path: '/api/documents' },
   { endpoint_name: 'Galardões',      endpoint_path: '/api/awards' },
-  { endpoint_name: 'Detalhe Imóvel', endpoint_path: '/api/assets/{id}' },
-  { endpoint_name: 'Detalhe Agente', endpoint_path: '/api/users/{id}' },
+  { endpoint_name: 'Detalhe Imóvel',    endpoint_path: '/api/assets/{id}' },
+  { endpoint_name: 'Detalhe Agente',    endpoint_path: '/api/users/{id}' },
+  { endpoint_name: 'Detalhe Vendedor',  endpoint_path: '/api/owners/{id}' },
 ];
 
 // ─── GET /api/pipelines ──────────────────────────────────────────────────────
