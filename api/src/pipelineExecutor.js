@@ -14,6 +14,19 @@ const pool = require('./db/pool');
 const API_BASE_URL     = process.env.API_BASE_URL      || 'https://imodigital.pt';
 const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY  || '';
 
+// Global semaphore for entities that make per-record C21 API calls from the same IP.
+// Running multiple pipelines concurrently on the same IP triggers rate limiting.
+const SERIALIZED_ENTITIES = new Set(['owner_details', 'asset_details', 'user_details']);
+const entityLocks = new Map(); // entity → Promise chain
+
+function withEntityLock(entity, fn) {
+  if (!SERIALIZED_ENTITIES.has(entity)) return fn();
+  const prev = entityLocks.get(entity) || Promise.resolve();
+  const next = prev.then(() => fn()).catch(() => fn());
+  entityLocks.set(entity, next.catch(() => {}));
+  return next;
+}
+
 // Map pipeline endpoint_path → backfill entity name (worker supported entities)
 const PATH_TO_ENTITY = {
   '/api/users':        'users',
@@ -164,109 +177,118 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, 
   for (const ws of workspaces) {
     if (!ws.external_id) continue;
 
-    const jobId = require('crypto').randomUUID();
+    if (SERIALIZED_ENTITIES.has(entity)) {
+      console.log(`[pipeline:${pipelineId}] ${entity} ws=${ws.name}: waiting for global entity lock`);
+    }
 
-    // Insert job record
-    await pool.query(
-      `INSERT INTO c21_pipeline_jobs
-         (id, pipeline_id, endpoint_id, workspace_id, workspace_name, credential_id, entity, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
-      [jobId, pipelineId, ep.id, ws.external_id, ws.name, ep.credential_id, entity]
-    );
+    await withEntityLock(entity, async () => {
+      const jobId = require('crypto').randomUUID();
 
-    console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name} entity=${entity} job=${jobId} worker=${workerUrl}`);
-
-    try {
-      const workerRes = await fetch(`${workerUrl}/api/21online/backfill-workspace`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-internal-api-key': workerKey,
-        },
-        body: JSON.stringify({
-          job_id:                jobId,
-          workspace_external_id: ws.external_id,
-          workspace_row_id:      ws.external_id,
-          workspace_id:          ws.external_id,
-          workspace_name:        ws.name,
-          connection_id:         ep.credential_id,
-          email:                 ep.cred_email,
-          password:              ep.cred_password,
-          entities:              [entity],
-          callback_url:          `${API_BASE_URL}/api/pipelines/callback`,
-          callback_api_key:      CALLBACK_API_KEY,
-          backfill_mode:         ep._force_full ? 'full' : (ep.backfill_mode || 'full'),
-          incremental_months:    ep.incremental_months || 14,
-          ...(entity === 'leads' && ep.backfill_from_date && { leads_since: ep.backfill_from_date.toISOString().slice(0, 10) }),
-        }),
-        signal: AbortSignal.timeout(15000),
-      });
-
-      if (!workerRes.ok) {
-        const err = await workerRes.json().catch(() => ({}));
-        const msg = err.error || `Worker HTTP ${workerRes.status}`;
-        console.error(`[pipeline:${pipelineId}] Worker ${workerUrl} rejected job ${jobId}: ${msg}`);
-        await pool.query(
-          `UPDATE c21_pipeline_jobs
-           SET status = 'error', error_msg = $1, finished_at = now()
-           WHERE id = $2`,
-          [msg, jobId]
-        );
-        await pool.query(
-          `UPDATE c21_pipeline_endpoints SET status = 'error', updated_at = now() WHERE id = $1`,
-          [ep.id]
-        );
-        endpointStatus = 'error';
-        const rejectWaitMs = randomBetween(intervalMin, intervalMax);
-        console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name}: waiting ${Math.round(rejectWaitMs / 1000)}s after rejection`);
-        await sleep(rejectWaitMs);
-        continue;
-      }
-
-      // Worker accepted — mark endpoint as running
+      // Insert job record
       await pool.query(
-        `UPDATE c21_pipeline_endpoints
-         SET status = 'running', last_run_at = now(), updated_at = now()
-         WHERE id = $1`,
-        [ep.id]
+        `INSERT INTO c21_pipeline_jobs
+           (id, pipeline_id, endpoint_id, workspace_id, workspace_name, credential_id, entity, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
+        [jobId, pipelineId, ep.id, ws.external_id, ws.name, ep.credential_id, entity]
       );
 
-      // Poll DB for job completion (worker updates via callback)
-      // detail entities and contacts need up to 90 min; everything else 15 min
-      const pollTimeoutMs = (entity === 'asset_details' || entity === 'user_details' || entity === 'owner_details' || entity === 'contacts') ? 90 * 60 * 1000 : 15 * 60 * 1000;
-      const finalStatus = await pollJobUntilDone(jobId, pollTimeoutMs);
-      const jobRow = await pool.query('SELECT * FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
-      if (jobRow.rows[0]) {
-        totalFetched  += jobRow.rows[0].fetched  || 0;
-        totalInserted += jobRow.rows[0].inserted || 0;
-        if (jobRow.rows[0].status === 'error') endpointStatus = 'error';
-      }
-      console.log(`[pipeline:${pipelineId}] job ${jobId} finished: ${finalStatus} fetched=${totalFetched}`);
+      console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name} entity=${entity} job=${jobId} worker=${workerUrl}`);
 
-    } catch (err) {
-      console.error(`[pipeline:${pipelineId}] Error calling worker for job ${jobId}: ${err.message}`);
-      // Check if the job already completed successfully before overwriting its status
       try {
-        const check = await pool.query('SELECT status, fetched, inserted, failed FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
-        const current = check.rows[0];
-        if (current && current.status === 'done') {
-          console.log(`[pipeline:${pipelineId}] Job ${jobId} already done — ignoring connection error`);
-          totalFetched  += current.fetched  || 0;
-          totalInserted += current.inserted || 0;
-        } else {
+        const workerRes = await fetch(`${workerUrl}/api/21online/backfill-workspace`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-internal-api-key': workerKey,
+          },
+          body: JSON.stringify({
+            job_id:                jobId,
+            workspace_external_id: ws.external_id,
+            workspace_row_id:      ws.external_id,
+            workspace_id:          ws.external_id,
+            workspace_name:        ws.name,
+            connection_id:         ep.credential_id,
+            email:                 ep.cred_email,
+            password:              ep.cred_password,
+            entities:              [entity],
+            callback_url:          `${API_BASE_URL}/api/pipelines/callback`,
+            callback_api_key:      CALLBACK_API_KEY,
+            backfill_mode:         ep._force_full ? 'full' : (ep.backfill_mode || 'full'),
+            incremental_months:    ep.incremental_months || 14,
+            ...(entity === 'leads' && ep.backfill_from_date && { leads_since: ep.backfill_from_date.toISOString().slice(0, 10) }),
+          }),
+          signal: AbortSignal.timeout(15000),
+        });
+
+        if (!workerRes.ok) {
+          const err = await workerRes.json().catch(() => ({}));
+          const msg = err.error || `Worker HTTP ${workerRes.status}`;
+          console.error(`[pipeline:${pipelineId}] Worker ${workerUrl} rejected job ${jobId}: ${msg}`);
           await pool.query(
             `UPDATE c21_pipeline_jobs
              SET status = 'error', error_msg = $1, finished_at = now()
-             WHERE id = $2 AND status NOT IN ('done','cancelled')`,
-            [err.message, jobId]
+             WHERE id = $2`,
+            [msg, jobId]
+          );
+          await pool.query(
+            `UPDATE c21_pipeline_endpoints SET status = 'error', updated_at = now() WHERE id = $1`,
+            [ep.id]
           );
           endpointStatus = 'error';
+          const rejectWaitMs = randomBetween(intervalMin, intervalMax);
+          console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name}: waiting ${Math.round(rejectWaitMs / 1000)}s after rejection`);
+          await sleep(rejectWaitMs);
+          return;
         }
-      } catch (checkErr) {
-        console.error(`[pipeline:${pipelineId}] Could not check job status after error: ${checkErr.message}`);
-        endpointStatus = 'error';
+
+        // Worker accepted — mark endpoint as running
+        await pool.query(
+          `UPDATE c21_pipeline_endpoints
+           SET status = 'running', last_run_at = now(), updated_at = now()
+           WHERE id = $1`,
+          [ep.id]
+        );
+
+        // Poll DB for job completion (worker updates via callback)
+        // owner_details can take 180 min (199-295 owners, individual C21 API calls)
+        // other detail entities and contacts need up to 90 min; everything else 15 min
+        const pollTimeoutMs = entity === 'owner_details' ? 180 * 60 * 1000
+          : (entity === 'asset_details' || entity === 'user_details' || entity === 'contacts') ? 90 * 60 * 1000
+          : 15 * 60 * 1000;
+        const finalStatus = await pollJobUntilDone(jobId, pollTimeoutMs);
+        const jobRow = await pool.query('SELECT * FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
+        if (jobRow.rows[0]) {
+          totalFetched  += jobRow.rows[0].fetched  || 0;
+          totalInserted += jobRow.rows[0].inserted || 0;
+          if (jobRow.rows[0].status === 'error') endpointStatus = 'error';
+        }
+        console.log(`[pipeline:${pipelineId}] job ${jobId} finished: ${finalStatus} fetched=${totalFetched}`);
+
+      } catch (err) {
+        console.error(`[pipeline:${pipelineId}] Error calling worker for job ${jobId}: ${err.message}`);
+        // Check if the job already completed successfully before overwriting its status
+        try {
+          const check = await pool.query('SELECT status, fetched, inserted, failed FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
+          const current = check.rows[0];
+          if (current && current.status === 'done') {
+            console.log(`[pipeline:${pipelineId}] Job ${jobId} already done — ignoring connection error`);
+            totalFetched  += current.fetched  || 0;
+            totalInserted += current.inserted || 0;
+          } else {
+            await pool.query(
+              `UPDATE c21_pipeline_jobs
+               SET status = 'error', error_msg = $1, finished_at = now()
+               WHERE id = $2 AND status NOT IN ('done','cancelled')`,
+              [err.message, jobId]
+            );
+            endpointStatus = 'error';
+          }
+        } catch (checkErr) {
+          console.error(`[pipeline:${pipelineId}] Could not check job status after error: ${checkErr.message}`);
+          endpointStatus = 'error';
+        }
       }
-    }
+    });
   }
 
   // Update endpoint final stats
