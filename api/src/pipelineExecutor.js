@@ -245,13 +245,27 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, 
 
     } catch (err) {
       console.error(`[pipeline:${pipelineId}] Error calling worker for job ${jobId}: ${err.message}`);
-      await pool.query(
-        `UPDATE c21_pipeline_jobs
-         SET status = 'error', error_msg = $1, finished_at = now()
-         WHERE id = $2`,
-        [err.message, jobId]
-      );
-      endpointStatus = 'error';
+      // Check if the job already completed successfully before overwriting its status
+      try {
+        const check = await pool.query('SELECT status, fetched, inserted, failed FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
+        const current = check.rows[0];
+        if (current && current.status === 'done') {
+          console.log(`[pipeline:${pipelineId}] Job ${jobId} already done — ignoring connection error`);
+          totalFetched  += current.fetched  || 0;
+          totalInserted += current.inserted || 0;
+        } else {
+          await pool.query(
+            `UPDATE c21_pipeline_jobs
+             SET status = 'error', error_msg = $1, finished_at = now()
+             WHERE id = $2 AND status NOT IN ('done','cancelled')`,
+            [err.message, jobId]
+          );
+          endpointStatus = 'error';
+        }
+      } catch (checkErr) {
+        console.error(`[pipeline:${pipelineId}] Could not check job status after error: ${checkErr.message}`);
+        endpointStatus = 'error';
+      }
     }
   }
 
@@ -266,11 +280,20 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, 
 
 async function pollJobUntilDone(jobId, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
+  let consecutiveErrors = 0;
   while (Date.now() < deadline) {
     await sleep(2000);
-    const row = await pool.query('SELECT status FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
-    const status = row.rows[0]?.status;
-    if (status && ['done', 'error', 'cancelled'].includes(status)) return status;
+    try {
+      const row = await pool.query('SELECT status FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
+      consecutiveErrors = 0;
+      const status = row.rows[0]?.status;
+      if (status && ['done', 'error', 'cancelled'].includes(status)) return status;
+    } catch (connErr) {
+      consecutiveErrors++;
+      console.warn(`[pollJob:${jobId}] connection error (${consecutiveErrors}): ${connErr.message}`);
+      if (consecutiveErrors >= 5) throw connErr;
+      await sleep(5000);
+    }
   }
   // Timeout — mark job as error
   await pool.query(
