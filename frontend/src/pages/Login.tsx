@@ -71,7 +71,7 @@ export default function Login() {
               Área de Administração
             </h1>
             <p className="text-zinc-500 text-sm mt-1">
-              imodigital.pt
+              worker.century21lux.pt
             </p>
           </div>
 
@@ -94,7 +94,7 @@ export default function Login() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="admin@imodigital.pt"
+                placeholder="admin@century21lux.pt"
                 autoComplete="email"
                 required
                 className="w-full bg-zinc-800 border border-zinc-700 text-white placeholder-zinc-600 rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand transition-colors"
