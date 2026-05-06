@@ -183,13 +183,14 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, 
 
     await withEntityLock(entity, async () => {
       const jobId = require('crypto').randomUUID();
+      const jobType = ep._job_type || 'incremental';
 
       // Insert job record
       await pool.query(
         `INSERT INTO c21_pipeline_jobs
-           (id, pipeline_id, endpoint_id, workspace_id, workspace_name, credential_id, entity, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'running')`,
-        [jobId, pipelineId, ep.id, ws.external_id, ws.name, ep.credential_id, entity]
+           (id, pipeline_id, endpoint_id, workspace_id, workspace_name, credential_id, entity, status, job_type)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'running', $8)`,
+        [jobId, pipelineId, ep.id, ws.external_id, ws.name, ep.credential_id, entity, jobType]
       );
 
       console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name} ws=${ws.name} entity=${entity} job=${jobId} worker=${workerUrl}`);
@@ -213,9 +214,11 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, 
             entities:              [entity],
             callback_url:          `${API_BASE_URL}/api/pipelines/callback`,
             callback_api_key:      CALLBACK_API_KEY,
-            backfill_mode:         ep._force_full ? 'full' : (ep.backfill_mode || 'full'),
+            backfill_mode:         ep._force_full ? 'full' : (ep._incremental_since ? 'incremental' : (ep.backfill_mode || 'full')),
             incremental_months:    ep.incremental_months || 14,
-            ...(entity === 'leads' && ep.backfill_from_date && { leads_since: ep.backfill_from_date.toISOString().slice(0, 10) }),
+            ...(entity === 'leads' && (ep._incremental_since || ep.backfill_from_date) && {
+              leads_since: (ep._incremental_since || ep.backfill_from_date).toISOString(),
+            }),
           }),
           signal: AbortSignal.timeout(15000),
         });
@@ -398,20 +401,42 @@ async function runPipelineLoop(pipelineId) {
           }
         }
 
-        // Check runs_per_day limit
+        // Full backfill: enqueue once per day at full_backfill_time
+        if (ep.full_backfill_time) {
+          const now = new Date();
+          const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+          const today = now.toISOString().slice(0, 10);
+          const lastDate = ep.full_backfill_last_date ? String(ep.full_backfill_last_date).slice(0, 10) : null;
+          if (hhmm >= ep.full_backfill_time.slice(0, 5) && lastDate !== today) {
+            await pool.query(
+              `UPDATE c21_pipeline_endpoints SET full_backfill_last_date = CURRENT_DATE WHERE id = $1`,
+              [ep.id]
+            );
+            console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: full backfill enqueued (${hhmm} >= ${ep.full_backfill_time})`);
+            await runEndpoint(pipelineId, { ...ep, _force_full: true, _job_type: 'full' }, pipeline.interval_min, pipeline.interval_max, workerUrl, workerKey);
+            if (ctx.cancel) break;
+          }
+        }
+
+        // Check runs_per_day limit (incremental jobs only)
         if (ep.runs_per_day) {
           const todayRuns = await pool.query(
             `SELECT COUNT(*) AS cnt FROM c21_pipeline_jobs
-             WHERE endpoint_id = $1 AND started_at >= CURRENT_DATE AND status IN ('done','error')`,
+             WHERE endpoint_id = $1 AND started_at >= CURRENT_DATE AND status IN ('done','error') AND job_type = 'incremental'`,
             [ep.id]
           );
           if (parseInt(todayRuns.rows[0].cnt, 10) >= ep.runs_per_day) {
-            console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (ran ${todayRuns.rows[0].cnt}/${ep.runs_per_day} times today)`);
+            console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (ran ${todayRuns.rows[0].cnt}/${ep.runs_per_day} incremental today)`);
             continue;
           }
         }
 
-        await runEndpoint(pipelineId, ep, pipeline.interval_min, pipeline.interval_max, workerUrl, workerKey);
+        // Compute incremental window if incremental_hours is configured
+        const epForRun = ep.incremental_hours
+          ? { ...ep, _incremental_since: new Date(Date.now() - ep.incremental_hours * 3600 * 1000), _job_type: 'incremental' }
+          : ep;
+
+        await runEndpoint(pipelineId, epForRun, pipeline.interval_min, pipeline.interval_max, workerUrl, workerKey);
       }
 
       if (ctx.cancel) break;
