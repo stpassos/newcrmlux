@@ -41,6 +41,8 @@ interface PipelineEndpoint {
   backfill_from_date: string | null
   incremental_months: number
   runs_per_day: number | null
+  incremental_hours: number | null
+  full_backfill_time: string | null
   runs_today: number
   is_active: boolean
   status: 'idle' | 'running' | 'done' | 'error' | 'waiting'
@@ -400,6 +402,31 @@ function EndpointCard({
                 Limite de execuções diárias · hoje: <span className={ep.runs_per_day && ep.runs_today >= ep.runs_per_day ? 'text-orange-400 font-medium' : 'text-zinc-400'}>{ep.runs_today}</span>
                 {ep.runs_per_day ? ` / ${ep.runs_per_day}` : ''}
               </p>
+            </div>
+
+            {/* Incremental hours */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Backfill incremental (últimas X horas)</label>
+              <input
+                type="number" min={1} max={168}
+                placeholder="Desativado"
+                value={draft.incremental_hours ?? ep.incremental_hours ?? ''}
+                onChange={e => setDraft(d => ({ ...d, incremental_hours: e.target.value ? Number(e.target.value) : null }))}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+              />
+              <p className="text-zinc-600 text-xs">Cada execução importa apenas os registos das últimas X horas. Deixar vazio para importar tudo.</p>
+            </div>
+
+            {/* Full backfill time */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-zinc-400">Hora do backfill completo diário</label>
+              <input
+                type="time"
+                value={draft.full_backfill_time ?? ep.full_backfill_time ?? ''}
+                onChange={e => setDraft(d => ({ ...d, full_backfill_time: e.target.value || null }))}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand/50 focus:border-brand"
+              />
+              <p className="text-zinc-600 text-xs">Hora a que o backfill completo é disparado uma vez por dia (ex: 03:00). Deixar vazio para desativar.</p>
             </div>
           </div>
 

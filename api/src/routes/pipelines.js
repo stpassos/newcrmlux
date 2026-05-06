@@ -461,8 +461,10 @@ router.patch('/:id/endpoints/:eid', verifyToken, requireRole('admin'), async (re
     if (backfill_from_date  !== undefined) { sets.push(`backfill_from_date = $${i++}`);  values.push(backfill_from_date || null); }
     if (is_active           !== undefined) { sets.push(`is_active = $${i++}`);           values.push(is_active); }
     if (status              !== undefined) { sets.push(`status = $${i++}`);              values.push(status); }
-    if (req.body.runs_per_day       !== undefined) { sets.push(`runs_per_day = $${i++}`);       values.push(req.body.runs_per_day === '' ? null : req.body.runs_per_day); }
-    if (req.body.incremental_months !== undefined) { sets.push(`incremental_months = $${i++}`); values.push(req.body.incremental_months || 14); }
+    if (req.body.runs_per_day        !== undefined) { sets.push(`runs_per_day = $${i++}`);        values.push(req.body.runs_per_day === '' ? null : req.body.runs_per_day); }
+    if (req.body.incremental_months  !== undefined) { sets.push(`incremental_months = $${i++}`);  values.push(req.body.incremental_months || 14); }
+    if (req.body.incremental_hours   !== undefined) { sets.push(`incremental_hours = $${i++}`);   values.push(req.body.incremental_hours === '' ? null : req.body.incremental_hours); }
+    if (req.body.full_backfill_time  !== undefined) { sets.push(`full_backfill_time = $${i++}`);  values.push(req.body.full_backfill_time === '' ? null : req.body.full_backfill_time); }
 
     if (sets.length === 0) return res.status(400).json({ error: 'Nenhum campo para atualizar' });
 
