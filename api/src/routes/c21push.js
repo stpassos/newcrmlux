@@ -209,7 +209,7 @@ router.post('/push-lead', async (req, res, next) => {
     // Try lead_type "reference" if referencia provided; fall back to "lead" on failure
     const buildLeadPayload = (useRef) => {
       const p = {
-        lead_type: useRef ? 'reference' : 'lead',
+        lead_type: useRef ? 'reference' : 'normal_lead',
         contact_id: contactData.id,
         user_id: crm_id,
         workspace_id: workspaceUuid,
