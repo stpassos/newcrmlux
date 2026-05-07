@@ -225,7 +225,7 @@ router.post('/push-lead', async (req, res, next) => {
       ? await rsc('/leads', ACTION_LEAD, TREE_LEADS, buildLeadPayload(true))
       : null;
 
-    if (!leadData?.id) {
+    if (!leadData?.id && !leadData?.isSuccess) {
       leadData = await rsc('/leads', ACTION_LEAD, TREE_LEADS, buildLeadPayload(false));
     }
 
