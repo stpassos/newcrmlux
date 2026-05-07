@@ -106,25 +106,30 @@ async function callRSC(path, actionHash, routerTree, payload, cookieStr) {
 }
 
 // ─── Source mapping (portal capitalised → 21online API values) ────────────────
+// Portal CRM has 6 fonte values — mapped to 21online source strings
 const FONTE_MAP = {
-  'agency website': 'agency_website', 'cartel c21': 'cartel_c21',
-  'casayes': 'casayes', 'century 21 (es)': 'century_21_es',
-  'century 21 (pt)': 'century_21_pt', 'custojusto': 'custojusto',
-  'facilitea': 'facilitea', 'fotocasa': 'fotocasa',
-  'greenacres': 'greenacres', 'habitaclia': 'habitaclia',
-  'idealista': 'idealista', 'idealista (es)': 'idealista_es',
-  'idealista (pt)': 'idealista_pt', 'imovirtual': 'imovirtual',
-  'indomio': 'indomio', 'jamesedition': 'jamesedition',
-  'kyero': 'kyero', 'listglobally': 'listglobally',
-  'merete de meures': 'merete_de_meures', 'milanuncios': 'milanuncios',
-  'mls': 'mls', 'my site': 'my_site', 'olx': 'olx', 'outro': 'outro',
-  'pisos': 'pisos', 'quatru': 'quatru', 'resales': 'resales',
-  'super casa sapo': 'super_casa_sapo', 'vistamar': 'vistamar',
-  'vivegreen': 'vivegreen',
+  // Portal values (case-insensitive)
+  'idealista':  'idealista',
+  'imovirtual': 'imovirtual',
+  'site c21':   'agency_website',
+  'escala':     'outro',
+  'agência':    'outro',
+  'agencia':    'outro',
+  'outro':      'outro',
+  // Pass-through for any 21online values sent directly
+  'agency_website': 'agency_website', 'cartel_c21': 'cartel_c21',
+  'casayes': 'casayes', 'century_21_es': 'century_21_es',
+  'century_21_pt': 'century_21_pt', 'custojusto': 'custojusto',
+  'fotocasa': 'fotocasa', 'greenacres': 'greenacres',
+  'habitaclia': 'habitaclia', 'idealista_es': 'idealista_es',
+  'idealista_pt': 'idealista_pt', 'indomio': 'indomio',
+  'jamesedition': 'jamesedition', 'kyero': 'kyero',
+  'listglobally': 'listglobally', 'mls': 'mls', 'olx': 'olx',
+  'pisos': 'pisos', 'resales': 'resales', 'vistamar': 'vistamar',
 };
 function mapFonte(fonte) {
   if (!fonte) return 'outro';
-  return FONTE_MAP[fonte.toLowerCase().trim()] ?? fonte.toLowerCase().trim();
+  return FONTE_MAP[fonte.toLowerCase().trim()] ?? 'outro';
 }
 
 // ─── POST /api/21online/push-lead ─────────────────────────────────────────────
@@ -198,18 +203,29 @@ router.post('/push-lead', async (req, res, next) => {
     }
 
     // 5. Create lead in 21online
-    const leadPayload = {
-      lead_type: referencia ? 'reference' : 'lead',
-      contact_id: contactData.id,
-      user_id: crm_id,
-      workspace_id: workspaceUuid,
-      lang: 'pt',
-      source: mapFonte(fonte),
+    // Try lead_type "reference" if referencia provided; fall back to "lead" on failure
+    const buildLeadPayload = (useRef) => {
+      const p = {
+        lead_type: useRef ? 'reference' : 'lead',
+        contact_id: contactData.id,
+        user_id: crm_id,
+        workspace_id: workspaceUuid,
+        lang: 'pt',
+        source: mapFonte(fonte),
+      };
+      if (useRef && referencia) p.reference = referencia;
+      if (mensagem) p.message = mensagem;
+      return p;
     };
-    if (referencia)  leadPayload.reference = referencia;
-    if (mensagem)    leadPayload.message   = mensagem;
 
-    const leadData = await rsc('/leads', ACTION_LEAD, TREE_LEADS, leadPayload);
+    let leadData = referencia
+      ? await rsc('/leads', ACTION_LEAD, TREE_LEADS, buildLeadPayload(true))
+      : null;
+
+    if (!leadData?.id) {
+      leadData = await rsc('/leads', ACTION_LEAD, TREE_LEADS, buildLeadPayload(false));
+    }
+
     if (!leadData?.id) {
       return res.status(502).json({
         error: 'Falha ao criar lead no 21online — resposta inesperada',
