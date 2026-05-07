@@ -98,7 +98,7 @@ async function callRSC(path, actionHash, routerTree, payload, cookieStr) {
     if (!content.startsWith('{')) continue;
     try {
       const obj = JSON.parse(content);
-      if (obj?.data?.id) return obj.data;
+      if (obj?.data?.id || obj?.data?.isSuccess) return obj.data;
     } catch (_) { /* not JSON, skip */ }
   }
 
@@ -229,14 +229,14 @@ router.post('/push-lead', async (req, res, next) => {
       leadData = await rsc('/leads', ACTION_LEAD, TREE_LEADS, buildLeadPayload(false));
     }
 
-    if (!leadData?.id) {
+    if (!leadData?.id && !leadData?.isSuccess) {
       return res.status(502).json({
         error: 'Falha ao criar lead no 21online — resposta inesperada',
         contact_id: contactData.id,
       });
     }
 
-    res.json({ success: true, lead_id: leadData.id, contact_id: contactData.id });
+    res.json({ success: true, lead_id: leadData.id || null, contact_id: contactData.id });
 
   } catch (err) {
     next(err);
