@@ -143,33 +143,36 @@ router.post('/push-lead', async (req, res, next) => {
 
   const { client_name, client_email, client_phone, crm_id, workspace_id, referencia, fonte, mensagem } = req.body;
 
-  if (!client_name || !crm_id || !workspace_id) {
-    return res.status(400).json({ error: 'client_name, crm_id e workspace_id são obrigatórios' });
+  if (!client_name || !crm_id) {
+    return res.status(400).json({ error: 'client_name e crm_id são obrigatórios' });
   }
 
   try {
-    // 1. Resolve workspace UUID from integer private_id
-    const wsRow = await pool.query('SELECT id FROM c21_workspaces WHERE private_id = $1', [workspace_id]);
-    if (!wsRow.rows[0]) {
-      return res.status(404).json({ error: `Workspace ${workspace_id} não encontrado na BD` });
-    }
-    const workspaceUuid = wsRow.rows[0].id;
+    // 1. Resolve workspace UUID
+    // Primary: look up from c21_agents by consultant's crm_id (external_id)
+    // Fallback: derive from workspace_id integer using known mapping
+    const WORKSPACE_MAP = {
+      2158: '1a7fcf97-c0c5-483c-848b-9477380bf079', // CENTURY 21 Lux II (Estoril)
+       316: '8426c13c-6568-4c79-b3ad-d6edbd91d3f4', // CENTURY 21 Lux (Cacém)
+    };
 
-    // 2. Find 21online credentials for this workspace (fallback: any active cred)
-    let credRow = (await pool.query(
-      `SELECT c.email, c.crm_password
-       FROM c21_credentials c
-       JOIN c21_pipeline_endpoints pe ON pe.credential_id = c.id
-       WHERE pe.workspace_id = $1 AND c.is_active = true
-       LIMIT 1`,
-      [workspaceUuid]
+    const agentRow = (await pool.query(
+      'SELECT workspace_id FROM c21_agents WHERE external_id = $1 LIMIT 1',
+      [crm_id]
     )).rows[0];
 
-    if (!credRow) {
-      credRow = (await pool.query(
-        'SELECT email, crm_password FROM c21_credentials WHERE is_active = true ORDER BY created_at LIMIT 1'
-      )).rows[0];
+    const workspaceUuid = agentRow?.workspace_id
+      || (workspace_id && WORKSPACE_MAP[Number(workspace_id)])
+      || null;
+
+    if (!workspaceUuid) {
+      return res.status(404).json({ error: `Workspace não encontrado para crm_id ${crm_id} / workspace_id ${workspace_id}` });
     }
+
+    // 2. Get active 21online credential (there's currently only one — Ana Pinto)
+    const credRow = (await pool.query(
+      'SELECT email, crm_password FROM c21_credentials WHERE is_active = true ORDER BY created_at LIMIT 1'
+    )).rows[0];
 
     if (!credRow) return res.status(500).json({ error: 'Sem credenciais 21online activas' });
 
