@@ -15,6 +15,7 @@ const credentialsRoutes = require('./routes/credentials');
 const pipelinesRoutes = require('./routes/pipelines');
 const serverMonitorRoutes = require('./routes/server-monitor');
 const databaseRoutes      = require('./routes/database');
+const c21pushRoutes       = require('./routes/c21push');
 const { resumeOnStartup } = require('./pipelineExecutor');
 const pool = require('./db/pool');
 
@@ -43,6 +44,7 @@ app.use('/api/credentials', credentialsRoutes);
 app.use('/api/pipelines', pipelinesRoutes);
 app.use('/api/server-monitor', serverMonitorRoutes);
 app.use('/api/database',      databaseRoutes);
+app.use('/api/21online',      c21pushRoutes);
 
 app.use(errorHandler);
 
