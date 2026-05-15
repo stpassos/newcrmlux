@@ -389,13 +389,16 @@ async function runPipelineLoop(pipelineId) {
           }
         }
 
-        // Check time-of-day window
+        // Check time-of-day window (supports cross-midnight ranges, e.g. 13:00–09:00)
         if (ep.active_from && ep.active_to) {
           const now = new Date();
           const hhmm = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-          const activeTo = ep.active_to.slice(0, 5);
-          const afterEnd = activeTo !== '00:00' && hhmm >= activeTo;
-          if (hhmm < ep.active_from.slice(0, 5) || afterEnd) {
+          const from = ep.active_from.slice(0, 5);
+          const to   = ep.active_to.slice(0, 5);
+          const inWindow = from <= to
+            ? hhmm >= from && (to === '00:00' || hhmm < to)   // same-day: 09:00–17:00
+            : hhmm >= from || hhmm < to;                       // cross-midnight: 13:00–09:00
+          if (!inWindow) {
             console.log(`[pipeline:${pipelineId}] ${ep.endpoint_name}: skipped (time ${hhmm} outside ${ep.active_from}-${ep.active_to})`);
             continue;
           }
