@@ -536,10 +536,10 @@ async function resumeOnStartup() {
        WHERE status = 'running'`
     );
 
-    // Mark stale running jobs as error
+    // Mark stale running jobs as cancelled (not error — worker may still complete them)
     const staleJobs = await pool.query(
       `UPDATE c21_pipeline_jobs
-       SET status = 'error', error_msg = 'Stale job — API restarted', finished_at = now()
+       SET status = 'cancelled', error_msg = 'API restarted', finished_at = now()
        WHERE status = 'running'
        RETURNING id`
     );
