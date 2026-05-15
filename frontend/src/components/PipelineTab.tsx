@@ -499,6 +499,7 @@ function EndpointCard({
 function JobsHistory({ pipelineId, refreshKey }: { pipelineId: string; refreshKey?: number }) {
   const [jobs, setJobs] = useState<PipelineJob[]>([])
   const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [confirmClear, setConfirmClear] = useState(false)
 
@@ -510,6 +511,18 @@ function JobsHistory({ pipelineId, refreshKey }: { pipelineId: string; refreshKe
       setJobs([])
     } finally {
       setLoading(false)
+    }
+  }, [pipelineId])
+
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true)
+    try {
+      const res = await api.get<{ data: PipelineJob[] }>(`/api/pipelines/${pipelineId}/jobs`)
+      setJobs(res.data)
+    } catch {
+      setJobs([])
+    } finally {
+      setRefreshing(false)
     }
   }, [pipelineId])
 
@@ -568,11 +581,11 @@ function JobsHistory({ pipelineId, refreshKey }: { pipelineId: string; refreshKe
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={load}
-            disabled={loading}
+            onClick={handleRefresh}
+            disabled={refreshing}
             className="flex items-center gap-2 text-zinc-400 hover:text-white text-sm px-3 py-2 rounded-lg hover:bg-zinc-800 transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
             Atualizar
           </button>
           <button
