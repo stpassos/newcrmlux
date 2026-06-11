@@ -11,12 +11,6 @@ const CALLBACK_API_KEY = process.env.INTERNAL_API_KEY;
 const SUPABASE_RECEIVER_URL = process.env.SUPABASE_RECEIVER_URL || '';
 const SUPABASE_RECEIVER_KEY = process.env.SUPABASE_RECEIVER_KEY || '';
 
-// Direct Supabase REST API for owner enrichment patches (bypasses edge function)
-const SUPABASE_ANON_KEY    = process.env.SUPABASE_ANON_KEY || '';
-const SUPABASE_PROJECT_URL = SUPABASE_RECEIVER_URL.includes('/functions/v1/')
-  ? SUPABASE_RECEIVER_URL.split('/functions/v1/')[0]
-  : (process.env.SUPABASE_PROJECT_URL || '');
-
 // Entities to forward to Supabase (entity → supabase entity name)
 // NOTE: 'users' (list) is intentionally excluded — /api/users list returns the workspace
 // team leader role for all members; only /api/users/{id} (user_details) has the correct role.
@@ -38,36 +32,6 @@ const SUPABASE_ENTITY_MAP = {
   awards:       'awards',
 };
 
-// Direct PATCH to Supabase imoveis for owner enrichment fields.
-// Called fire-and-forget after asset_details batches that include _owner_* fields.
-function patchSupabaseOwnerFields(records) {
-  if (!SUPABASE_PROJECT_URL || !SUPABASE_ANON_KEY) return;
-  const enriched = records.filter(r => r._owner_external_id);
-  if (!enriched.length) return;
-  for (const rec of enriched) {
-    const reference = rec.reference || rec.ref || null;
-    if (!reference) continue;
-    const patch = { owner_enriched_at: rec._owner_enriched_at };
-    if (rec._owner_ad_title)             patch.ad_title             = rec._owner_ad_title;
-    if (rec._owner_description_pt)       patch.description_pt       = rec._owner_description_pt;
-    if (rec._owner_short_description_pt) patch.short_description_pt = rec._owner_short_description_pt;
-    fetch(
-      `${SUPABASE_PROJECT_URL}/rest/v1/imoveis?referencia=eq.${encodeURIComponent(reference)}`,
-      {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_ANON_KEY,
-          'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
-          'Prefer': 'return=minimal',
-        },
-        body: JSON.stringify(patch),
-        signal: AbortSignal.timeout(10000),
-      }
-    ).catch(err => console.warn(`[owner-enrich] PATCH ${reference}: ${err.message}`));
-  }
-  console.log(`[owner-enrich] Patched ${enriched.length} imoveis records`);
-}
 
 async function pushToSupabase(entity, workspaceId, records) {
   if (!SUPABASE_RECEIVER_URL || !SUPABASE_RECEIVER_KEY) return;
@@ -174,11 +138,6 @@ router.post('/callback', async (req, res) => {
       // Push to Supabase (century21lux.pt) — fire-and-forget
       if (stored > 0 && entity) {
         pushToSupabase(entity, workspaceId, records);
-      }
-
-      // Patch imoveis owner fields directly via Supabase REST API
-      if (entity === 'asset_details') {
-        patchSupabaseOwnerFields(records);
       }
 
       // Update job fetched count
