@@ -1,6 +1,18 @@
 require('dotenv').config();
+
+// Fail-fast: variáveis obrigatórias têm de estar definidas antes de qualquer import
+const REQUIRED_ENV = ['JWT_SECRET', 'INTERNAL_API_KEY', 'ENCRYPTION_KEY']
+for (const key of REQUIRED_ENV) {
+  if (!process.env[key]) {
+    console.error(`FATAL: variável de ambiente "${key}" não definida. O servidor não pode arrancar.`)
+    process.exit(1)
+  }
+}
+
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const errorHandler = require('./middleware/errorHandler');
 
 const authRoutes = require('./routes/auth');
@@ -16,22 +28,67 @@ const pipelinesRoutes = require('./routes/pipelines');
 const serverMonitorRoutes = require('./routes/server-monitor');
 const databaseRoutes      = require('./routes/database');
 const c21pushRoutes       = require('./routes/c21push');
+const whatsappRoutes      = require('./routes/whatsapp');
 const { resumeOnStartup } = require('./pipelineExecutor');
 const pool = require('./db/pool');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// ── Security headers ────────────────────────────────────────────────────────
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc:  ["'self'"],
+      styleSrc:   ["'self'", "'unsafe-inline'"],
+      imgSrc:     ["'self'", 'data:', 'https:'],
+      connectSrc: ["'self'"],
+      frameSrc:   ["'none'"],
+      objectSrc:  ["'none'"],
+    },
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true },
+}))
+
+// ── CORS ────────────────────────────────────────────────────────────────────
+const ALLOWED_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',').map(o => o.trim()).filter(Boolean)
+
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin) return cb(null, true) // server-to-server / curl
+    if (ALLOWED_ORIGINS.includes(origin)) return cb(null, true)
+    cb(new Error('Not allowed by CORS'))
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}))
+
+// ── Rate limiting ───────────────────────────────────────────────────────────
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => req.ip,
+  message: { error: 'Demasiadas tentativas. Aguarda 1 minuto.' },
+})
+
+app.use('/api/auth/login', authLimiter)
+app.use('/api/auth/change-password', authLimiter)
+
+// ── Body parsers ────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
-// Health check
+// ── Health check ────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Routes
+// ── Routes ──────────────────────────────────────────────────────────────────
 app.use('/api/auth', authRoutes);
 app.use('/api/users', usersRoutes);
 app.use('/api/properties', propertiesRoutes);
@@ -45,6 +102,7 @@ app.use('/api/pipelines', pipelinesRoutes);
 app.use('/api/server-monitor', serverMonitorRoutes);
 app.use('/api/database',      databaseRoutes);
 app.use('/api/21online',      c21pushRoutes);
+app.use('/api/whatsapp',      whatsappRoutes);
 
 app.use(errorHandler);
 
@@ -87,13 +145,43 @@ async function runMigrations() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_calendar_workspace ON c21_calendar(workspace_id)`);
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_c21_calendar_type ON c21_calendar USING gin((data->'type') jsonb_path_ops) `);
     console.log('[migrations] c21_calendar OK');
-    // Add runs_per_day and incremental_months columns if not present
     await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD COLUMN IF NOT EXISTS runs_per_day INT DEFAULT NULL`);
     await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD COLUMN IF NOT EXISTS incremental_months INT DEFAULT 14`);
-    // Expand backfill_mode check constraint to include 'incremental'
     await pool.query(`ALTER TABLE c21_pipeline_endpoints DROP CONSTRAINT IF EXISTS c21_pipeline_endpoints_backfill_mode_check`);
     await pool.query(`ALTER TABLE c21_pipeline_endpoints ADD CONSTRAINT c21_pipeline_endpoints_backfill_mode_check CHECK (backfill_mode IN ('full','from_date','incremental'))`);
     console.log('[migrations] c21_pipeline_endpoints columns OK');
+
+    // Security migrations
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0`);
+    console.log('[migrations] users.token_version OK');
+
+    // WhatsApp / Evolution Go tables
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_instances (
+        id SERIAL PRIMARY KEY,
+        name TEXT UNIQUE NOT NULL,
+        connected BOOLEAN NOT NULL DEFAULT false,
+        jid TEXT,
+        disconnect_reason TEXT,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    console.log('[migrations] whatsapp_instances OK');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS whatsapp_messages (
+        id SERIAL PRIMARY KEY,
+        instance_name TEXT NOT NULL,
+        message_id TEXT UNIQUE NOT NULL,
+        remote_jid TEXT,
+        from_me BOOLEAN NOT NULL DEFAULT false,
+        message_type TEXT,
+        content JSONB,
+        received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_wamsg_instance ON whatsapp_messages(instance_name)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_wamsg_jid ON whatsapp_messages(remote_jid)`);
+    console.log('[migrations] whatsapp_messages OK');
   } catch (err) {
     console.error('[migrations] Error:', err.message);
   }
