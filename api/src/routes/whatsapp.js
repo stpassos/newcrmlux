@@ -142,7 +142,13 @@ router.get('/messages/:instance', verifyToken, requireRole('admin'), async (req,
 
 // ─── POST /api/whatsapp/create-instance ──────────────────────────────────────
 // Cria instância no Evolution Go e aplica o proxy automaticamente
-router.post('/create-instance', verifyToken, requireRole('admin'), async (req, res, next) => {
+// Aceita: JWT CRM admin  OU  x-internal-api-key (para Supabase Edge Functions)
+function authCreateInstance(req, res, next) {
+  const internalKey = req.headers['x-internal-api-key'];
+  if (internalKey && internalKey === process.env.INTERNAL_API_KEY) return next();
+  return verifyToken(req, res, () => requireRole('admin')(req, res, next));
+}
+router.post('/create-instance', authCreateInstance, async (req, res, next) => {
   try {
     const { name, webhook, events } = req.body || {};
     if (!name) return res.status(400).json({ error: 'Missing instance name' });
