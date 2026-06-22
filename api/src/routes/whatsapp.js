@@ -51,7 +51,11 @@ function evoRequest(method, path, body) {
 // Sem autenticação JWT — validado pelo apikey header
 router.post('/webhook', async (req, res) => {
   try {
-    const { event, instance, data } = req.body || {};
+    const body = req.body || {};
+    // Evolution Go pode usar 'event' ou 'eventType'; 'instance' ou 'instanceId'
+    const event    = body.event    || body.eventType || null;
+    const instance = body.instance || body.instanceId || null;
+    const data     = body.data     || null;
 
     if (!event || !instance) {
       return res.status(400).json({ error: 'Missing event or instance' });
