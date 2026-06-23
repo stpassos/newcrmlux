@@ -162,11 +162,13 @@ router.get('/workspaces', verifyToken, requireRole('admin'), async (req, res, ne
       return res.status(404).json({ error: 'Nenhuma conexão ativa configurada.' });
     }
 
-    const workerRes = await fetch('http://207.180.210.173:8080/api/21online/crm-fetch', {
+    const workerUrl = process.env.WORKER_LUX1_URL || 'http://173.249.49.92:8080';
+    const workerKey = process.env.WORKER_LUX1_KEY || process.env.INTERNAL_API_KEY;
+    const workerRes = await fetch(`${workerUrl}/api/21online/crm-fetch`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-internal-api-key': process.env.INTERNAL_API_KEY,
+        'x-internal-api-key': workerKey,
       },
       body: JSON.stringify({ email: conn.email, password: conn.crm_password, path: '/api/workspaces' }),
       signal: AbortSignal.timeout(20000),
