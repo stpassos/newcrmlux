@@ -77,6 +77,17 @@ router.post('/webhook', async (req, res) => {
            updated_at = NOW()`,
         [instance, connected, jid, disconnect_reason]
       );
+
+      // Sincronizar connection_status no Supabase (whatsapp_integration_config)
+      const receiverUrl = process.env.SUPABASE_RECEIVER_URL;
+      const receiverKey = process.env.SUPABASE_RECEIVER_KEY;
+      if (receiverUrl && receiverKey) {
+        fetch(receiverUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'x-api-key': receiverKey },
+          body: JSON.stringify({ entity: 'whatsapp_connection', instance, connected }),
+        }).catch(err => console.warn('[whatsapp:connection-sync]', err.message));
+      }
     }
 
     // Processar eventos de MENSAGEM recebida
