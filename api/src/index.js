@@ -29,6 +29,7 @@ const serverMonitorRoutes = require('./routes/server-monitor');
 const databaseRoutes      = require('./routes/database');
 const c21pushRoutes       = require('./routes/c21push');
 const whatsappRoutes      = require('./routes/whatsapp');
+const scrapeRoutes        = require('./routes/scrape');
 const { resumeOnStartup } = require('./pipelineExecutor');
 const pool = require('./db/pool');
 
@@ -103,6 +104,7 @@ app.use('/api/server-monitor', serverMonitorRoutes);
 app.use('/api/database',      databaseRoutes);
 app.use('/api/21online',      c21pushRoutes);
 app.use('/api/whatsapp',      whatsappRoutes);
+app.use('/api/scrape',        scrapeRoutes);
 
 app.use(errorHandler);
 
