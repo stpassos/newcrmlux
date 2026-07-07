@@ -30,6 +30,7 @@ const databaseRoutes      = require('./routes/database');
 const c21pushRoutes       = require('./routes/c21push');
 const whatsappRoutes      = require('./routes/whatsapp');
 const scrapeRoutes        = require('./routes/scrape');
+const notificationsRoutes = require('./routes/notifications');
 const { resumeOnStartup } = require('./pipelineExecutor');
 const pool = require('./db/pool');
 
@@ -105,6 +106,7 @@ app.use('/api/database',      databaseRoutes);
 app.use('/api/21online',      c21pushRoutes);
 app.use('/api/whatsapp',      whatsappRoutes);
 app.use('/api/scrape',        scrapeRoutes);
+app.use('/api/notifications', notificationsRoutes);
 
 app.use(errorHandler);
 
@@ -156,6 +158,39 @@ async function runMigrations() {
     // Security migrations
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INT NOT NULL DEFAULT 0`);
     console.log('[migrations] users.token_version OK');
+
+    // Notification config + log tables
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS notification_config (
+        id INT PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+        phone_number TEXT NOT NULL DEFAULT '',
+        enabled BOOLEAN NOT NULL DEFAULT false,
+        cpu_threshold INT DEFAULT NULL,
+        ram_threshold INT DEFAULT NULL,
+        disk_threshold INT DEFAULT NULL,
+        cpu_message TEXT NOT NULL DEFAULT 'Alerta CRM: CPU {value}% (limite: {threshold}%)',
+        ram_message TEXT NOT NULL DEFAULT 'Alerta CRM: RAM {value}% (limite: {threshold}%)',
+        disk_message TEXT NOT NULL DEFAULT 'Alerta CRM: Disco {value}% (limite: {threshold}%)',
+        job_fail_message TEXT NOT NULL DEFAULT 'CRM Job falhou - {endpoint} ({workspace}): {error}',
+        job_cancel_message TEXT NOT NULL DEFAULT 'CRM Job cancelado - {endpoint} ({workspace})',
+        monitored_endpoints JSONB NOT NULL DEFAULT '[]',
+        cooldown_minutes INT NOT NULL DEFAULT 15,
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS notification_log (
+        id SERIAL PRIMARY KEY,
+        type TEXT NOT NULL,
+        details TEXT,
+        phone_number TEXT,
+        success BOOLEAN NOT NULL DEFAULT false,
+        error_msg TEXT,
+        sent_at TIMESTAMPTZ NOT NULL DEFAULT now()
+      )
+    `);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_notif_log_type_sent ON notification_log(type, sent_at DESC)`);
+    console.log('[migrations] notification_config + notification_log OK');
 
     // WhatsApp / Evolution Go tables
     await pool.query(`

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useAuthStore } from '@/stores/authStore'
 import { useNavigate, useLocation, Outlet } from 'react-router-dom'
-import { LogOut, LayoutDashboard, Users, Building2, FolderSync, Menu, X, Home } from 'lucide-react'
+import { LogOut, LayoutDashboard, Users, Building2, FolderSync, Menu, X, Home, Bell } from 'lucide-react'
 
 const NAV = [
   { path: '/admin', label: 'Dashboard', icon: LayoutDashboard, exact: true },
@@ -9,6 +9,7 @@ const NAV = [
   { path: '/admin/utilizadores', label: 'Utilizadores', icon: Users },
   { path: '/admin/proprietarios', label: 'Proprietários', icon: Home },
   { path: '/admin/sincronizacao', label: 'Sincronização', icon: FolderSync },
+  { path: '/admin/notificacoes', label: 'Notificações', icon: Bell },
 ]
 
 export default function AdminLayout() {

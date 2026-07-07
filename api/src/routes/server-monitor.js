@@ -8,16 +8,18 @@
 const express = require('express');
 const pool = require('../db/pool');
 const { verifyToken, requireRole } = require('../middleware/auth');
+const { checkAndNotify } = require('../lib/smsNotifier');
 
 const router = express.Router();
 
-const INGEST_KEY = process.env.INTERNAL_API_KEY || '';
+const INGEST_KEY = process.env.INTERNAL_API_KEY;
 
 // ─── POST /api/server-monitor/ingest ─────────────────────────────────────────
 // Called by the Linux agent every 15s — no JWT, protected by x-monitor-key
 router.post('/ingest', async (req, res, next) => {
   const key = req.headers['x-monitor-key'] || '';
-  if (INGEST_KEY && key !== INGEST_KEY) {
+  // Fail-closed: se INGEST_KEY não estiver definida, rejeitar sempre
+  if (!INGEST_KEY || key !== INGEST_KEY) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
@@ -86,6 +88,9 @@ router.post('/ingest', async (req, res, next) => {
     await pool.query(
       `DELETE FROM lux_worker_metrics WHERE collected_at < now() - interval '7 days'`
     ).catch(() => {});
+
+    // Check notification thresholds (fire-and-forget)
+    checkAndNotify(server).catch(() => {});
 
     res.json({ success: true });
   } catch (err) {

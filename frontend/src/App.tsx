@@ -7,6 +7,7 @@ import Sync from '@/pages/Sync'
 import Imoveis from '@/pages/Imoveis'
 import Utilizadores from '@/pages/Utilizadores'
 import Proprietarios from '@/pages/Proprietarios'
+import Notificacoes from '@/pages/Notificacoes'
 import AdminLayout from '@/components/AdminLayout'
 import ProtectedRoute from '@/components/ProtectedRoute'
 
@@ -34,6 +35,7 @@ export default function App() {
           <Route path="imoveis" element={<Imoveis />} />
           <Route path="utilizadores" element={<Utilizadores />} />
           <Route path="proprietarios" element={<Proprietarios />} />
+          <Route path="notificacoes" element={<Notificacoes />} />
         </Route>
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
