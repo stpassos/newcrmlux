@@ -205,6 +205,13 @@ async function runMigrations() {
     `);
     await pool.query(`ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS token TEXT`);
     await pool.query(`ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS qrcode TEXT`);
+    // Seed tokens de instâncias criadas manualmente no Evolution Go
+    await pool.query(`
+      INSERT INTO whatsapp_instances (name, token, connected) VALUES
+        ('portal-sergiopassos', 'portal_sergiopassos_95e674fe0cbd4c2c3fe0c8d73a5d02c1', false),
+        ('portal-anamfmendes',  'portal_anamfmendes_6a25211c8186f130f9cac8aef5e2a633',  false)
+      ON CONFLICT (name) DO UPDATE SET token = EXCLUDED.token
+    `);
     console.log('[migrations] whatsapp_instances OK');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS whatsapp_messages (

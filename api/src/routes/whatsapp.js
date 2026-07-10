@@ -175,7 +175,11 @@ function authPortal(req, res, next) {
 router.get('/status/:name', authPortal, async (req, res, next) => {
   try {
     const { name } = req.params;
-    const token = generateInstanceToken(name);
+
+    // Usar token da DB se disponível (instâncias criadas manualmente ou pré-existentes),
+    // caso contrário gerar via HMAC (instâncias criadas pelo create-instance)
+    const dbRow = await pool.query(`SELECT token, qrcode FROM whatsapp_instances WHERE name = $1`, [name]);
+    const token = dbRow.rows[0]?.token || generateInstanceToken(name);
 
     // Estado actual do Evolution Go
     const evoStatus = await evoRequest('GET', '/instance/status', null, token).catch(() => null);
@@ -190,9 +194,6 @@ router.get('/status/:name', authPortal, async (req, res, next) => {
 
       // Fallback: QR guardado pelo webhook
       if (!qrcode) {
-        const dbRow = await pool.query(
-          `SELECT qrcode FROM whatsapp_instances WHERE name = $1`, [name]
-        );
         qrcode = dbRow.rows[0]?.qrcode || null;
       }
     }
