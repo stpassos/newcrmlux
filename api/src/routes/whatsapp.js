@@ -242,6 +242,7 @@ router.post('/create-instance', authCreateInstance, async (req, res, next) => {
     const alreadyExists  = existingStatus?.status === 200;
 
     let createBody = null;
+    let instanceId = null;
     if (!alreadyExists) {
       // Criar instância — token obrigatório no body para Evolution Go
       const createRes = await evoRequest('POST', '/instance/create', {
@@ -256,13 +257,21 @@ router.post('/create-instance', authCreateInstance, async (req, res, next) => {
       }
 
       createBody = createRes.body;
-      const instanceId = createRes.body?.data?.id || createRes.body?.id;
+      instanceId = createRes.body?.data?.id || createRes.body?.id;
+    }
 
-      // Aplicar proxy DataImpulse
-      if (instanceId) {
-        const proxyRes = await evoRequest('POST', `/instance/proxy/${instanceId}`, PROXY_CONFIG);
-        console.log(`[whatsapp] proxy set for ${name} (${instanceId}): ${proxyRes.status}`);
-      }
+    // Para instâncias já existentes, obter o ID via listagem global
+    if (!instanceId) {
+      const listRes = await evoRequest('GET', '/instance/all', null).catch(() => null);
+      const list = listRes?.body?.data || [];
+      const found = list.find(i => i.name === name);
+      instanceId = found?.id || null;
+    }
+
+    // Aplicar proxy DataImpulse sempre (idempotente)
+    if (instanceId) {
+      const proxyRes = await evoRequest('POST', `/instance/proxy/${instanceId}`, PROXY_CONFIG);
+      console.log(`[whatsapp] proxy set for ${name} (${instanceId}): ${proxyRes.status}`);
     }
 
     // Registar/actualizar token na DB local
