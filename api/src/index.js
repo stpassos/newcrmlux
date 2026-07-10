@@ -203,6 +203,8 @@ async function runMigrations() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
+    await pool.query(`ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS token TEXT`);
+    await pool.query(`ALTER TABLE whatsapp_instances ADD COLUMN IF NOT EXISTS qrcode TEXT`);
     console.log('[migrations] whatsapp_instances OK');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS whatsapp_messages (

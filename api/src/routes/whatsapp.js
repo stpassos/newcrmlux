@@ -1,8 +1,11 @@
-const express = require('express');
-const pool = require('../db/pool');
+'use strict';
+
+const express  = require('express');
+const crypto   = require('crypto');
+const pool     = require('../db/pool');
 const { verifyToken, requireRole } = require('../middleware/auth');
-const https = require('https');
-const http = require('http');
+const https    = require('https');
+const http     = require('http');
 
 const router = express.Router();
 
@@ -10,15 +13,17 @@ const router = express.Router();
 const EVO_BASE_URL = process.env.EVOLUTION_GO_URL || 'https://lux.webflix.pt';
 const EVO_API_KEY  = process.env.EVOLUTION_GO_API_KEY || '';
 const PROXY_CONFIG = {
-  host:     process.env.WA_PROXY_HOST     || 'p.webshare.io',
-  port:     process.env.WA_PROXY_PORT     || '80',
-  username: process.env.WA_PROXY_USERNAME || 'edtvcfal-PT-rotate',
-  password: process.env.WA_PROXY_PASSWORD || 'e49i21vl4wna',
+  host:     process.env.WA_PROXY_HOST     || 'gw.dataimpulse.com',
+  port:     process.env.WA_PROXY_PORT     || '10000',
+  username: process.env.WA_PROXY_USERNAME || '',
+  password: process.env.WA_PROXY_PASSWORD || '',
   protocol: process.env.WA_PROXY_PROTOCOL || 'http',
 };
 
-function evoRequest(method, path, body) {
+// apiKey defaults to global key; pass instance token for instance-scoped endpoints
+function evoRequest(method, path, body, apiKey) {
   return new Promise((resolve, reject) => {
+    const key = apiKey || EVO_API_KEY;
     const url = new URL(EVO_BASE_URL + path);
     const lib = url.protocol === 'https:' ? https : http;
     const payload = body ? JSON.stringify(body) : null;
@@ -28,7 +33,7 @@ function evoRequest(method, path, body) {
       path: url.pathname,
       method,
       headers: {
-        'apikey': EVO_API_KEY,
+        'apikey': key,
         'Content-Type': 'application/json',
         ...(payload ? { 'Content-Length': Buffer.byteLength(payload) } : {}),
       },
@@ -46,13 +51,20 @@ function evoRequest(method, path, body) {
   });
 }
 
+// Generate deterministic instance token from name + secret
+function generateInstanceToken(name) {
+  const secret = process.env.INTERNAL_API_KEY || 'crmlux_secret';
+  const sanitized = name.replace(/-/g, '_');
+  const hash = crypto.createHmac('md5', secret).update(name).digest('hex');
+  return `${sanitized}_${hash}`;
+}
+
 // ─── POST /api/whatsapp/webhook ──────────────────────────────────────────────
-// Recebe eventos do Evolution Go (CONNECTION, MESSAGE, SEND_MESSAGE, etc.)
-// Sem autenticação JWT — validado pelo apikey header
+// Recebe eventos do Evolution Go (CONNECTION, MESSAGE, QRCODE, etc.)
+// Sem autenticacao JWT — chamado directamente pelo Evolution Go
 router.post('/webhook', async (req, res) => {
   try {
-    const body = req.body || {};
-    // Evolution Go pode usar 'event' ou 'eventType'; 'instance' ou 'instanceId'
+    const body     = req.body || {};
     const event    = body.event    || body.eventType || null;
     const instance = body.instance || body.instanceId || null;
     const data     = body.data     || null;
@@ -61,24 +73,25 @@ router.post('/webhook', async (req, res) => {
       return res.status(400).json({ error: 'Missing event or instance' });
     }
 
-    // Processar evento CONNECTION — atualiza estado da instância
+    // Processar evento CONNECTION
     if (event === 'CONNECTION') {
-      const connected = data?.connected ?? false;
-      const jid = data?.jid || null;
+      const connected         = data?.connected ?? false;
+      const jid               = data?.jid || null;
       const disconnect_reason = data?.disconnect_reason || null;
 
       await pool.query(
         `INSERT INTO whatsapp_instances (name, connected, jid, disconnect_reason, updated_at)
          VALUES ($1, $2, $3, $4, NOW())
          ON CONFLICT (name) DO UPDATE SET
-           connected = EXCLUDED.connected,
-           jid = EXCLUDED.jid,
+           connected         = EXCLUDED.connected,
+           jid               = EXCLUDED.jid,
            disconnect_reason = EXCLUDED.disconnect_reason,
-           updated_at = NOW()`,
+           qrcode            = CASE WHEN EXCLUDED.connected THEN NULL ELSE whatsapp_instances.qrcode END,
+           updated_at        = NOW()`,
         [instance, connected, jid, disconnect_reason]
       );
 
-      // Sincronizar connection_status no Supabase (whatsapp_integration_config)
+      // Sincronizar connection_status no Supabase
       const receiverUrl = process.env.SUPABASE_RECEIVER_URL;
       const receiverKey = process.env.SUPABASE_RECEIVER_KEY;
       if (receiverUrl && receiverKey) {
@@ -90,15 +103,32 @@ router.post('/webhook', async (req, res) => {
       }
     }
 
-    // Processar eventos de MENSAGEM recebida
+    // Processar evento QRCODE — guarda QR para o portal buscar via polling
+    if (event === 'QRCODE') {
+      const qrcode = data?.qrcode || data?.Qrcode || data?.base64 || null;
+      if (qrcode) {
+        await pool.query(
+          `INSERT INTO whatsapp_instances (name, connected, qrcode, updated_at)
+           VALUES ($1, false, $2, NOW())
+           ON CONFLICT (name) DO UPDATE SET
+             qrcode     = EXCLUDED.qrcode,
+             connected  = false,
+             updated_at = NOW()`,
+          [instance, qrcode]
+        );
+        console.log(`[whatsapp] QR code saved for instance: ${instance}`);
+      }
+    }
+
+    // Processar evento MESSAGE
     if (event === 'MESSAGE') {
-      const msg = data || {};
-      const remoteJid = msg.key?.remoteJid || msg.remoteJid || null;
-      const fromMe = msg.key?.fromMe ?? false;
-      const messageId = msg.key?.id || null;
+      const msg         = data || {};
+      const remoteJid   = msg.key?.remoteJid || msg.remoteJid || null;
+      const fromMe      = msg.key?.fromMe ?? false;
+      const messageId   = msg.key?.id || null;
       const messageType = msg.messageType || msg.type || 'unknown';
-      const content = msg.message || msg.body || null;
-      const timestamp = msg.messageTimestamp
+      const content     = msg.message || msg.body || null;
+      const timestamp   = msg.messageTimestamp
         ? new Date(msg.messageTimestamp * 1000)
         : new Date();
 
@@ -116,13 +146,11 @@ router.post('/webhook', async (req, res) => {
     res.json({ status: 'ok', event, instance });
   } catch (err) {
     console.error('[whatsapp webhook]', err.message);
-    // Sempre retornar 200 para o Evolution Go não fazer retry desnecessário
     res.json({ status: 'error', message: err.message });
   }
 });
 
 // ─── GET /api/whatsapp/instances ─────────────────────────────────────────────
-// Lista instâncias registadas no CRM com estado de conexão
 router.get('/instances', verifyToken, requireRole('admin'), async (req, res, next) => {
   try {
     const result = await pool.query(
@@ -136,8 +164,46 @@ router.get('/instances', verifyToken, requireRole('admin'), async (req, res, nex
   }
 });
 
+// ─── GET /api/whatsapp/status/:name ──────────────────────────────────────────
+// Polling endpoint para o portal: retorna connected + qrcode
+// Auth: JWT qualquer utilizador OU x-internal-api-key
+function authPortal(req, res, next) {
+  const internalKey = req.headers['x-internal-api-key'];
+  if (internalKey && internalKey === process.env.INTERNAL_API_KEY) return next();
+  return verifyToken(req, res, () => next());
+}
+router.get('/status/:name', authPortal, async (req, res, next) => {
+  try {
+    const { name } = req.params;
+    const token = generateInstanceToken(name);
+
+    // Estado actual do Evolution Go
+    const evoStatus = await evoRequest('GET', '/instance/status', null, token).catch(() => null);
+    const connected = evoStatus?.body?.data?.Connected ?? false;
+    const loggedIn  = evoStatus?.body?.data?.LoggedIn  ?? false;
+
+    let qrcode = null;
+    if (!connected || !loggedIn) {
+      // Tentar QR directo do Evolution Go
+      const evoQr = await evoRequest('GET', '/instance/qr', null, token).catch(() => null);
+      qrcode = evoQr?.body?.data?.Qrcode || null;
+
+      // Fallback: QR guardado pelo webhook
+      if (!qrcode) {
+        const dbRow = await pool.query(
+          `SELECT qrcode FROM whatsapp_instances WHERE name = $1`, [name]
+        );
+        qrcode = dbRow.rows[0]?.qrcode || null;
+      }
+    }
+
+    res.json({ name, connected, logged_in: loggedIn, qrcode });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // ─── GET /api/whatsapp/messages/:instance ────────────────────────────────────
-// Lista mensagens recebidas de uma instância
 router.get('/messages/:instance', verifyToken, requireRole('admin'), async (req, res, next) => {
   try {
     const { instance } = req.params;
@@ -156,8 +222,7 @@ router.get('/messages/:instance', verifyToken, requireRole('admin'), async (req,
 });
 
 // ─── POST /api/whatsapp/create-instance ──────────────────────────────────────
-// Cria instância no Evolution Go e aplica o proxy automaticamente
-// Aceita: JWT CRM admin  OU  x-internal-api-key (para Supabase Edge Functions)
+// Auth: JWT admin OU x-internal-api-key (Supabase Edge Functions)
 function authCreateInstance(req, res, next) {
   const internalKey = req.headers['x-internal-api-key'];
   if (internalKey && internalKey === process.env.INTERNAL_API_KEY) return next();
@@ -168,33 +233,59 @@ router.post('/create-instance', authCreateInstance, async (req, res, next) => {
     const { name, webhook, events } = req.body || {};
     if (!name) return res.status(400).json({ error: 'Missing instance name' });
 
-    // 1. Criar instância no Evolution Go
-    const createRes = await evoRequest('POST', '/instance/create', {
-      name,
-      webhook: webhook || null,
-      events: events || 'MESSAGE,SEND_MESSAGE,CONNECTION,QRCODE',
+    // Token determinístico baseado no nome da instância
+    const token = generateInstanceToken(name);
+
+    // Verificar se a instância já existe no Evolution Go
+    const existingStatus = await evoRequest('GET', '/instance/status', null, token).catch(() => null);
+    const alreadyExists  = existingStatus?.status === 200;
+
+    let createBody = null;
+    if (!alreadyExists) {
+      // Criar instância — token obrigatório no body para Evolution Go
+      const createRes = await evoRequest('POST', '/instance/create', {
+        name,
+        token,
+        webhook: webhook || null,
+        events:  events  || 'MESSAGE,SEND_MESSAGE,CONNECTION,QRCODE',
+      });
+
+      if (createRes.status !== 200 && createRes.status !== 201) {
+        return res.status(createRes.status).json({ error: 'Evolution Go error', detail: createRes.body });
+      }
+
+      createBody = createRes.body;
+      const instanceId = createRes.body?.data?.id || createRes.body?.id;
+
+      // Aplicar proxy DataImpulse
+      if (instanceId) {
+        const proxyRes = await evoRequest('POST', `/instance/proxy/${instanceId}`, PROXY_CONFIG);
+        console.log(`[whatsapp] proxy set for ${name} (${instanceId}): ${proxyRes.status}`);
+      }
+    }
+
+    // Registar/actualizar token na DB local
+    await pool.query(
+      `INSERT INTO whatsapp_instances (name, token, connected, updated_at)
+       VALUES ($1, $2, false, NOW())
+       ON CONFLICT (name) DO UPDATE SET
+         token      = EXCLUDED.token,
+         updated_at = NOW()`,
+      [name, token]
+    );
+
+    res.json({
+      data:           createBody,
+      already_existed: alreadyExists,
+      token,
+      proxy_applied:  !alreadyExists,
     });
-
-    if (createRes.status !== 200 && createRes.status !== 201) {
-      return res.status(createRes.status).json({ error: 'Evolution Go error', detail: createRes.body });
-    }
-
-    const instanceId = createRes.body?.data?.id || createRes.body?.id;
-
-    // 2. Aplicar proxy à nova instância
-    if (instanceId) {
-      const proxyRes = await evoRequest('POST', `/instance/proxy/${instanceId}`, PROXY_CONFIG);
-      console.log(`[whatsapp] proxy set for ${name} (${instanceId}): ${proxyRes.status}`);
-    }
-
-    res.json({ data: createRes.body, proxy_applied: !!instanceId });
   } catch (err) {
     next(err);
   }
 });
 
 // ─── POST /api/whatsapp/instances/:id/proxy ───────────────────────────────────
-// Aplica proxy padrão a uma instância existente (por ID Evolution Go)
 router.post('/instances/:id/proxy', verifyToken, requireRole('admin'), async (req, res, next) => {
   try {
     const { id } = req.params;
