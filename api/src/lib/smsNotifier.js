@@ -55,7 +55,18 @@ function formatMessage(template, vars) {
 async function checkAndNotify(serverMetrics) {
   try {
     const config = await getConfig();
-    if (!config || !config.enabled || !config.phone_number) return;
+    if (!config) {
+      console.warn('[notifications] no config row found — skipping');
+      return;
+    }
+    if (!config.enabled) {
+      console.log('[notifications] notifications disabled — skipping');
+      return;
+    }
+    if (!config.phone_number) {
+      console.warn('[notifications] phone_number not configured — skipping');
+      return;
+    }
 
     const { phone_number, cooldown_minutes = 15 } = config;
 

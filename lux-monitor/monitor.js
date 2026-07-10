@@ -17,7 +17,7 @@ const https = require('https');
 const http  = require('http');
 const { execSync } = require('child_process');
 
-const API_HOST    = 'imodigital.pt';
+const API_HOST    = 'worker.century21lux.pt';
 const API_PATH    = '/api/server-monitor/ingest';
 const MONITOR_KEY = process.env.MONITOR_KEY || '4261486c6c977ed56598f47831e0d777199e0ead54e996a0948b2a5815a9c5f5';
 const INTERVAL_MS = 15000;
