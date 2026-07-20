@@ -254,9 +254,11 @@ async function runEndpoint(pipelineId, ep, intervalMin, intervalMax, workerUrl, 
 
         // Poll DB for job completion (worker updates via callback)
         // owner_details can take 180 min (199-295 owners, individual C21 API calls)
-        // other detail entities and contacts need up to 90 min; everything else 15 min
+        // detail entities and contacts need up to 90 min
+        // leads and calendar can take 60 min for large workspaces (was 15 min — caused false timeout SMS)
         const pollTimeoutMs = entity === 'owner_details' ? 180 * 60 * 1000
           : (entity === 'asset_details' || entity === 'user_details' || entity === 'contacts') ? 90 * 60 * 1000
+          : (entity === 'leads' || entity === 'calendar') ? 60 * 60 * 1000
           : 15 * 60 * 1000;
         const finalStatus = await pollJobUntilDone(jobId, pollTimeoutMs);
         const jobRow = await pool.query('SELECT * FROM c21_pipeline_jobs WHERE id = $1', [jobId]);
@@ -320,13 +322,18 @@ async function pollJobUntilDone(jobId, timeoutMs) {
       await sleep(5000);
     }
   }
-  // Timeout — mark job as error
-  await pool.query(
+  // Timeout — mark job as error only if it hasn't already completed via callback
+  const timeoutUpdate = await pool.query(
     `UPDATE c21_pipeline_jobs
      SET status = 'error', error_msg = 'Timeout waiting for worker', finished_at = now()
-     WHERE id = $1`,
+     WHERE id = $1 AND status NOT IN ('done', 'cancelled')`,
     [jobId]
   );
+  if (timeoutUpdate.rowCount === 0) {
+    // Worker callback arrived before our timeout check — job already completed successfully
+    console.log(`[pollJob:${jobId}] Timeout reached but job already completed via callback — not marking as error`);
+    return 'done';
+  }
   return 'timeout';
 }
 
